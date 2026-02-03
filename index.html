@@ -1922,15 +1922,15 @@
                             <button class="copy-button">Copy</button>
                         </div>
                         <div class="code-line"><span class="code-comment"># Upstox API Credentials (from Upstox console)</span></div>
-                        <div class="code-line">api_key=your_api_key_here</div>
-                        <div class="code-line">api_secret=your_api_secret_here</div>
+                        <div class="code-line">api_key = "your_api_key_here"</div>
+                        <div class="code-line">api_secret = "your_api_secret_here"</div>
                         <div class="code-line"></div>
                         <div class="code-line"><span class="code-comment"># OAuth Configuration</span></div>
-                        <div class="code-line">redirect_url=https://your-redirect-url.com</div>
-                        <div class="code-line">state=your_unique_state_string</div>
+                        <div class="code-line">redirect_url = "https://www.omegaxi.in"</div>
+                        <div class="code-line">state = "your_unique_state_string"</div>
                         <div class="code-line"></div>
                         <div class="code-line"><span class="code-comment"># Access Token (will be auto-populated after first auth)</span></div>
-                        <div class="code-line">access_token=</div>
+                        <div class="code-line">access_token = ""</div>
                     </div>
 
                     <h3>First-Time Authentication</h3>
@@ -2040,9 +2040,1859 @@
                     </div>
                 </section>
 
-                <!-- Continue with remaining sections... -->
-                <!-- Note: Due to character limits, I've included the most critical sections. -->
-                <!-- Additional sections would follow the same pattern with detailed content. -->
+                <!-- Data Flow Section -->
+                <section id="data-flow" class="content-section">
+                    <div class="section-header">
+                        <div class="section-icon">7</div>
+                        <div>
+                            <h1 class="section-title">Data Flow & Processing</h1>
+                            <p class="section-subtitle">Real-time data pipeline from WebSocket to trading signals</p>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <div class="alert-title">
+                            <div class="alert-icon">📡</div>
+                            Data Pipeline Overview
+                        </div>
+                        <p>The bot implements a sophisticated real-time data processing pipeline with WebSocket streaming, tick aggregation, and multi-timeframe analysis for precise trading decisions.</p>
+                    </div>
+
+                    <h2>WebSocket Data Flow</h2>
+                    
+                    <h3>Connection Management</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">bot.py - WebSocket Initialization</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-comment"># Initialize WebSocket connection with Upstox MarketDataStreamerV3</span></div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">start_connection</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;Config.CONFIGURATION.access_token = <span class="code-keyword">self</span>.access_token</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer = MarketDataStreamerV3(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;upstox_client.ApiClient(Config.CONFIGURATION),</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[<span class="code-keyword">self</span>.main_instrument_key],  <span class="code-comment"># Initial subscription to main instrument</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;mode=<span class="code-string">"full"</span>  <span class="code-comment"># Full market depth feed</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer.auto_reconnect(<span class="code-keyword">True</span>, <span class="code-number">5</span>, <span class="code-number">3</span>)  <span class="code-comment"># Auto-reconnect with 5s delay, 3 attempts</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer.on(<span class="code-string">"open"</span>, <span class="code-keyword">self</span>.on_open)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer.on(<span class="code-string">"message"</span>, <span class="code-keyword">self</span>.on_message)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer.on(<span class="code-string">"error"</span>, <span class="code-keyword">self</span>.on_error)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer.on(<span class="code-string">"close"</span>, <span class="code-keyword">self</span>.on_close)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer.connect()</div>
+                    </div>
+
+                    <h3>Real-time Message Processing</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">bot.py - Message Handler</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">on_message</span>(<span class="code-keyword">self</span>, message):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">self</span>.kill_switch:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span>  <span class="code-comment"># Emergency stop active</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-string">"feeds"</span> <span class="code-keyword">not</span> <span class="code-keyword">in</span> message <span class="code-keyword">or</span> <span class="code-keyword">not</span> message[<span class="code-string">"feeds"</span>]:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span>  <span class="code-comment"># No data available</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;data = message[<span class="code-string">"feeds"</span>]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;feed_timestamp = pd.to_datetime(int(message[<span class="code-string">'currentTs'</span>]), unit=<span class="code-string">'ms'</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.tz_localize(<span class="code-string">'UTC'</span>).tz_convert(<span class="code-string">'Asia/Kolkata'</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">for</span> instrument_key, feed_data <span class="code-keyword">in</span> data.items():</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">try</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Process index data</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> instrument_key == <span class="code-keyword">self</span>.main_instrument_key:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ltp = feed_data[<span class="code-string">'fullFeed'</span>][<span class="code-string">'indexFF'</span>][<span class="code-string">'ltpc'</span>][<span class="code-string">'ltp'</span>]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ltq = feed_data[<span class="code-string">'fullFeed'</span>][<span class="code-string">'indexFF'</span>][<span class="code-string">'ltpc'</span>].get(<span class="code-string">"ltq"</span>, <span class="code-number">0</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.index_price = ltp</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.tick_buffer.append({<span class="code-string">"timestamp"</span>: feed_timestamp, </div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"price"</span>: ltp, <span class="code-string">"ltq"</span>: ltq})</div>
+                    </div>
+
+                    <h2>Tick Buffer Management</h2>
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Buffer Type</th>
+                                    <th>Data Structure</th>
+                                    <th>Purpose</th>
+                                    <th>Cleaning Strategy</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Main Tick Buffer</td>
+                                    <td>List of dictionaries with timestamp, price, ltq</td>
+                                    <td>Index price aggregation for candle formation</td>
+                                    <td>Automatic pruning outside market hours</td>
+                                </tr>
+                                <tr>
+                                    <td>CE Tick Buffer</td>
+                                    <td>List of dictionaries with option data</td>
+                                    <td>CE option price tracking and analysis</td>
+                                    <td>Cleared after each candle formation</td>
+                                </tr>
+                                <tr>
+                                    <td>PE Tick Buffer</td>
+                                    <td>List of dictionaries with option data</td>
+                                    <td>PE option price tracking and analysis</td>
+                                    <td>Cleared after each candle formation</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h2>Candle Aggregation Process</h2>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">bot.py - Candle Aggregation</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">aggregate_candles</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;df = pd.DataFrame(<span class="code-keyword">self</span>.tick_buffer)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> df.empty:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;df.set_index(<span class="code-string">"timestamp"</span>, inplace=<span class="code-keyword">True</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;df = df.between_time(<span class="code-string">"09:15"</span>, <span class="code-string">"15:30"</span>)  <span class="code-comment"># Market hour filtering</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">for</span> interval <span class="code-keyword">in</span> Config.INTERVALS:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;historic = <span class="code-keyword">self</span>.historic_df.get(interval)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;intraday = <span class="code-keyword">self</span>.intraday_df.get(interval)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Convert ticks to candles and merge with historical data</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.candle_df[interval] = <span class="code-keyword">self</span>.data_processor.convert_to_candles(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;df, interval, historic, intraday</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Calculate all technical indicators</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.candle_df[interval] = Calculations.calculate_indicators(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.candle_df[interval]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                    </div>
+
+                    <h2>Data Processing Pipeline</h2>
+                    <div class="strategy-flow">
+                        <div class="flow-step">
+                            <div class="flow-number">1</div>
+                            <div class="flow-connector"></div>
+                            <div class="flow-content">
+                                <div class="flow-title">Raw Tick Data</div>
+                                <div class="flow-description">
+                                    <p>WebSocket delivers individual tick data with:</p>
+                                    <ul>
+                                        <li>Timestamp (milliseconds since epoch)</li>
+                                        <li>Last Traded Price (LTP)</li>
+                                        <li>Last Traded Quantity (LTQ)</li>
+                                        <li>Instrument identifier</li>
+                                        <li>Market depth data (in full mode)</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flow-step">
+                            <div class="flow-number">2</div>
+                            <div class="flow-connector"></div>
+                            <div class="flow-content">
+                                <div class="flow-title">Tick Buffering</div>
+                                <div class="flow-description">
+                                    <p>Real-time tick storage in memory buffers:</p>
+                                    <ul>
+                                        <li><strong>Main Buffer:</strong> Index price ticks</li>
+                                        <li><strong>CE Buffer:</strong> Call option ticks</li>
+                                        <li><strong>PE Buffer:</strong> Put option ticks</li>
+                                        <li><strong>Filtering:</strong> Only market hour data retained</li>
+                                        <li><strong>Timestamp Conversion:</strong> UTC to IST conversion</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flow-step">
+                            <div class="flow-number">3</div>
+                            <div class="flow-connector"></div>
+                            <div class="flow-content">
+                                <div class="flow-title">Candle Formation</div>
+                                <div class="flow-description">
+                                    <p>Tick aggregation into OHLC candles:</p>
+                                    <ul>
+                                        <li><strong>Resampling:</strong> Ticks → 1min/3min candles</li>
+                                        <li><strong>OHLC Calculation:</strong> First, Max, Min, Last prices</li>
+                                        <li><strong>Volume Summation:</strong> Total LTQ per interval</li>
+                                        <li><strong>Data Merging:</strong> Real-time + historical + intraday</li>
+                                        <li><strong>Duplicate Removal:</strong> Keep latest timestamp</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flow-step">
+                            <div class="flow-number">4</div>
+                            <div class="flow-connector"></div>
+                            <div class="flow-content">
+                                <div class="flow-title">Indicator Calculation</div>
+                                <div class="flow-description">
+                                    <p>Technical analysis on formed candles:</p>
+                                    <ul>
+                                        <li><strong>VWAP:</strong> Volume-weighted average price (daily)</li>
+                                        <li><strong>RSI:</strong> Relative Strength Index (14-period)</li>
+                                        <li><strong>ATR:</strong> Average True Range (14-period RMA)</li>
+                                        <li><strong>ADX:</strong> Average Directional Index with ±DI</li>
+                                        <li><strong>Performance:</strong> Vectorized calculations for speed</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flow-step">
+                            <div class="flow-number">5</div>
+                            <div class="flow-content">
+                                <div class="flow-title">Signal Generation</div>
+                                <div class="flow-description">
+                                    <p>Real-time signal extraction:</p>
+                                    <ul>
+                                        <li><strong>VWAP Crossover:</strong> Price > VWAP with tolerance</li>
+                                        <li><strong>RSI Confirmation:</strong> Specific ranges for CE/PE</li>
+                                        <li><strong>Multi-timeframe:</strong> Both 1min and 3min analysis</li>
+                                        <li><strong>Validation:</strong> Pre-trade checks and filters</li>
+                                        <li><strong>Thread Safety:</strong> Lock protection for entry logic</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h2>Performance Optimizations</h2>
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Optimization</th>
+                                    <th>Implementation</th>
+                                    <th>Benefit</th>
+                                    <th>Impact</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Vectorized Calculations</td>
+                                    <td>Pandas/Numpy operations instead of loops</td>
+                                    <td>10-100x faster indicator calculation</td>
+                                    <td>Reduced CPU usage, faster signal generation</td>
+                                </tr>
+                                <tr>
+                                    <td>In-memory Buffers</td>
+                                    <td>List-based tick storage with periodic cleaning</td>
+                                    <td>Minimal I/O overhead, fast access</td>
+                                    <td>Low latency data processing</td>
+                                </tr>
+                                <tr>
+                                    <td>Selective Subscription</td>
+                                    <td>Only subscribe to needed instruments</td>
+                                    <td>Reduced bandwidth usage</td>
+                                    <td>Lower network load, faster updates</td>
+                                </tr>
+                                <tr>
+                                    <td>Thread Locks</td>
+                                    <td>Entry and exit locks for critical sections</td>
+                                    <td>Prevent race conditions</td>
+                                    <td>Thread-safe operation</td>
+                                </tr>
+                                <tr>
+                                    <td>Market Hour Filtering</td>
+                                    <td>Ignore non-market hour data</td>
+                                    <td>Reduced memory usage</td>
+                                    <td>Cleaner data, better performance</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Risk Management Section -->
+                <section id="risk-management" class="content-section">
+                    <div class="section-header">
+                        <div class="section-icon">8</div>
+                        <div>
+                            <h1 class="section-title">Risk Management Framework</h1>
+                            <p class="section-subtitle">Comprehensive risk controls and safety mechanisms</p>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-danger">
+                        <div class="alert-title">
+                            <div class="alert-icon">⚠️</div>
+                            Risk Warning
+                        </div>
+                        <p><strong>Options trading involves significant risk of loss.</strong> This bot implements multiple risk controls, but no system can eliminate risk entirely. Never trade with capital you cannot afford to lose.</p>
+                    </div>
+
+                    <h2>Multi-layer Risk Controls</h2>
+                    
+                    <h3>Position Sizing & Margin Management</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">calculations.py - Position Sizing</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">calculate_quantity</span>(lot_size):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Position size = Config.LOTS * instrument lot size</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;quantity = Config.LOTS * lot_size</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> quantity</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># In Data_Collector class:</span></div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">get_margin</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">self</span>.dry_run:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.available_margin = Config.DRY_RUN_MARGIN</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">else</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;api_response = api_instance.get_user_fund_margin(Config.API_VERSION)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.available_margin = api_response.data[<span class="code-string">'equity'</span>].available_margin</div>
+                    </div>
+
+                    <h3>Stop-Loss Implementation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">calculations.py - Stop-Loss Calculations</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">calculate_trigger_price</span>(option_price):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Initial stop-loss = option price - SL_POINTS</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;trigger_price = option_price - Config.SL_POINTS</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> trigger_price</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">calculate_sl_trigger</span>(option_price, trigger_price, current_atr):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Trailing stop logic activated after TRAILING_TRIGGER points profit</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> option_price >= trigger_price + Config.TRAILING_TRIGGER:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;new_trigger = option_price - (Config.TRAILING_MULTIPLIER * </div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Config.SL_POINTS + current_atr)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> new_trigger > trigger_price:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> new_trigger</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> trigger_price</div>
+                    </div>
+
+                    <h2>Risk Control Parameters</h2>
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Control Layer</th>
+                                    <th>Parameter</th>
+                                    <th>Default</th>
+                                    <th>Purpose</th>
+                                    <th>Risk Mitigation</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td rowspan="3">Position Control</td>
+                                    <td>TRADE_LIMIT</td>
+                                    <td><span class="config-value">5</span></td>
+                                    <td>Maximum trades per session</td>
+                                    <td>Prevents overtrading and revenge trading</td>
+                                </tr>
+                                <tr>
+                                    <td>LOTS</td>
+                                    <td><span class="config-value">1</span></td>
+                                    <td>Number of lots per trade</td>
+                                    <td>Controls position size relative to capital</td>
+                                </tr>
+                                <tr>
+                                    <td>ENTRY_COOLDOWN</td>
+                                    <td><span class="config-value">10</span>s</td>
+                                    <td>Minimum time between trades</td>
+                                    <td>Prevents rapid consecutive entries</td>
+                                </tr>
+                                
+                                <tr>
+                                    <td rowspan="4">Stop-Loss Control</td>
+                                    <td>SL_POINTS</td>
+                                    <td><span class="config-value">13</span></td>
+                                    <td>Initial stop-loss points</td>
+                                    <td>Defines maximum acceptable loss per trade</td>
+                                </tr>
+                                <tr>
+                                    <td>TRAILING_TRIGGER</td>
+                                    <td><span class="config-value">21</span></td>
+                                    <td>Profit points to activate trailing SL</td>
+                                    <td>Locks in profits while giving room to run</td>
+                                </tr>
+                                <tr>
+                                    <td>TRAILING_MULTIPLIER</td>
+                                    <td><span class="config-value">1.5</span></td>
+                                    <td>Multiplier for trailing stop adjustment</td>
+                                    <td>Controls trailing stop aggressiveness</td>
+                                </tr>
+                                <tr>
+                                    <td>MINIMUM_SL_PRICE</td>
+                                    <td><span class="config-value">20</span></td>
+                                    <td>Minimum stop-loss price above entry</td>
+                                    <td>Prevents stop-loss from moving too close</td>
+                                </tr>
+                                
+                                <tr>
+                                    <td rowspan="3">Market Control</td>
+                                    <td>MARKET_OPEN_TIME</td>
+                                    <td><span class="config-value">"09:15"</span></td>
+                                    <td>Start of trading window</td>
+                                    <td>Avoids pre-market volatility</td>
+                                </tr>
+                                <tr>
+                                    <td>MARKET_CLOSE_TIME</td>
+                                    <td><span class="config-value">"15:00"</span></td>
+                                    <td>End of trading window</td>
+                                    <td>Avoids post-market and closing volatility</td>
+                                </tr>
+                                <tr>
+                                    <td>DRY_RUN</td>
+                                    <td><span class="config-value">True</span></td>
+                                    <td>Simulation mode toggle</td>
+                                    <td>Primary safety for testing</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h2>Emergency Protocols</h2>
+                    
+                    <h3>Kill Switch Implementation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">terminator.py - Emergency Stop</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">class</span> <span class="code-class">Terminator</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">__init__</span>(<span class="code-keyword">self</span>, bot):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.bot = bot</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">listen_for_kill</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># 'q' for graceful shutdown, 'esc' for emergency kill</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;keyboard.on_press_key(<span class="code-string">"esc"</span>, <span class="code-keyword">self</span>.emergency_kill)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;keyboard.on_press_key(<span class="code-string">"q"</span>, <span class="code-keyword">self</span>.kill_bot)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">kill_bot</span>(<span class="code-keyword">self</span>, event=<span class="code-keyword">None</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.bot.kill_switch = <span class="code-keyword">True</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">not</span> Config.DRY_RUN:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">self</span>.bot.check_position():</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.bot.exit_trade()  <span class="code-comment"># Exit open position</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> hasattr(<span class="code-keyword">self</span>.bot, <span class="code-string">"streamer"</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.bot.streamer.disconnect()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">emergency_kill</span>(<span class="code-keyword">self</span>, event=<span class="code-keyword">None</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.bot.kill_switch = <span class="code-keyword">True</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> hasattr(<span class="code-keyword">self</span>.bot, <span class="code-string">"streamer"</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.bot.streamer.disconnect()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;sys.exit(<span class="code-number">1</span>)  <span class="code-comment"># Immediate termination</span></div>
+                    </div>
+
+                    <h3>Connection Failure Handling</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">bot.py - WebSocket Error Handling</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">on_error</span>(<span class="code-keyword">self</span>, error):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;logging.error(f<span class="code-string">"Websocket Error :{error}"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.status = <span class="code-string">"ERROR"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;Alerts.websocket_error()  <span class="code-comment"># Audio alert</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Auto-reconnect automatically attempts reconnection</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># If connection fails repeatedly, bot will remain in ERROR state</span></div>
+                    </div>
+
+                    <h2>Risk Monitoring Dashboard</h2>
+                    <p>The following metrics are continuously monitored:</p>
+                    
+                    <div class="components-grid">
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">💰</div>
+                                <div>
+                                    <div class="component-title">Margin Utilization</div>
+                                    <div class="component-subtitle">Real-time monitoring</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Available margin checked before each trade</li>
+                                <li>Position size validated against margin</li>
+                                <li>Dry-run mode uses simulated margin</li>
+                                <li>Real-time updates from Upstox API</li>
+                                <li>Block trades if insufficient margin</li>
+                            </ul>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">⏱️</div>
+                                <div>
+                                    <div class="component-title">Trade Frequency</div>
+                                    <div class="component-subtitle">Overtrading prevention</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Configurable trade limit per session</li>
+                                <li>Cooldown period between trades</li>
+                                <li>Real-time trade counter</li>
+                                <li>Market hour restrictions</li>
+                                <li>Session-based reset</li>
+                                <li>Emergency stop override</li>
+                            </ul>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🛡️</div>
+                                <div>
+                                    <div class="component-title">Stop-Loss Protection</div>
+                                    <div class="component-subtitle">Loss limitation system</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Initial fixed stop-loss</li>
+                                <li>ATR-based trailing stop-loss</li>
+                                <li>Minimum price protection</li>
+                                <li>Real-time position monitoring</li>
+                                <li>Automatic stop-loss updates</li>
+                                <li>Order type: SL-M (Stop Loss Market)</li>
+                            </ul>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">📊</div>
+                                <div>
+                                    <div class="component-title">Performance Metrics</div>
+                                    <div class="component-subtitle">Real-time tracking</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Win/Loss ratio tracking</li>
+                                <li>Average profit/loss per trade</li>
+                                <li>Risk-adjusted returns</li>
+                                <li>Trade log with timestamps</li>
+                                <li>CSV export for analysis</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <h2>Risk Assessment Matrix</h2>
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Risk Scenario</th>
+                                    <th>Probability</th>
+                                    <th>Impact</th>
+                                    <th>Mitigation</th>
+                                    <th>Monitoring</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Network Disconnection</td>
+                                    <td>Medium</td>
+                                    <td>High</td>
+                                    <td>Auto-reconnect, kill switch, position checks</td>
+                                    <td>WebSocket status, ping intervals</td>
+                                </tr>
+                                <tr>
+                                    <td>API Rate Limiting</td>
+                                    <td>Low</td>
+                                    <td>Medium</td>
+                                    <td>Request throttling, error handling</td>
+                                    <td>API response codes, retry logic</td>
+                                </tr>
+                                <tr>
+                                    <td>Market Gap Risk</td>
+                                    <td>Medium</td>
+                                    <td>High</td>
+                                    <td>Stop-loss orders, market hour restriction</td>
+                                    <td>Price gaps, volatility monitoring</td>
+                                </tr>
+                                <tr>
+                                    <td>System Crash</td>
+                                    <td>Low</td>
+                                    <td>High</td>
+                                    <td>Graceful shutdown, position exit on kill</td>
+                                    <td>System resources, error logs</td>
+                                </tr>
+                                <tr>
+                                    <td>Strategy Failure</td>
+                                    <td>Medium</td>
+                                    <td>High</td>
+                                    <td>Trade limits, dry-run testing, stop-loss</td>
+                                    <td>Performance metrics, win rate</td>
+                                </tr>
+                                <tr>
+                                    <td>Liquidity Risk</td>
+                                    <td>Low</td>
+                                    <td>Medium</td>
+                                    <td>Option selection criteria, lot size limits</td>
+                                    <td>Bid-ask spread, volume monitoring</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- API Integration Section -->
+                <section id="api" class="content-section">
+                    <div class="section-header">
+                        <div class="section-icon">9</div>
+                        <div>
+                            <h1 class="section-title">API Integration & WebSocket</h1>
+                            <p class="section-subtitle">Complete Upstox API integration with authentication and real-time streaming</p>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <div class="alert-title">
+                            <div class="alert-icon">🔗</div>
+                            API Integration Overview
+                        </div>
+                        <p>The bot integrates with multiple Upstox API endpoints for authentication, market data, order placement, and position management. All API calls follow Upstox's REST conventions with proper error handling.</p>
+                    </div>
+
+                    <h2>Authentication Flow</h2>
+                    
+                    <h3>OAuth2 Implementation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">authenticator.py - Complete Authentication</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">class</span> <span class="code-class">Authenticator</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;GRANT_TYPE = <span class="code-string">'authorization_code'</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;ENV_PATH = <span class="code-string">".env"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">__init__</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.check_env_file()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;load_dotenv()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.api_key = os.getenv(<span class="code-string">'api_key'</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.api_secret = os.getenv(<span class="code-string">'api_secret'</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.redirect_url = os.getenv(<span class="code-string">'redirect_url'</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.state = os.getenv(<span class="code-string">'state'</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.url = f<span class="code-string">"https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id={self.api_key}&redirect_uri={self.redirect_url}&state={self.state}"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.access_token = os.getenv(<span class="code-string">'access_token'</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.configuration = upstox_client.Configuration()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">self</span>.access_token:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.configuration.access_token = <span class="code-keyword">self</span>.access_token</div>
+                    </div>
+
+                    <h3>Token Management</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">authenticator.py - Token Validation & Refresh</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">check_token_validity</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;api_instance = upstox_client.PortfolioApi(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;upstox_client.ApiClient(<span class="code-keyword">self</span>.configuration))</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">try</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Test API call to validate token</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> <span class="code-keyword">bool</span>(api_instance.get_positions(Config.API_VERSION))</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">except</span> ApiException <span class="code-keyword">as</span> e:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.warning(<span class="code-string">"Token Expired"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> <span class="code-keyword">False</span></div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">fetch_token</span>(<span class="code-keyword">self</span>, code):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;api_instance = upstox_client.LoginApi()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">try</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;api_response = api_instance.token(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Config.API_VERSION,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;code=code,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;client_id=<span class="code-keyword">self</span>.api_key,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;client_secret=<span class="code-keyword">self</span>.api_secret,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;redirect_uri=<span class="code-keyword">self</span>.redirect_url,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;grant_type=<span class="code-keyword">self</span>.GRANT_TYPE</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&�nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.access_token = api_response.access_token</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">except</span> ApiException <span class="code-keyword">as</span> e:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.error(f<span class="code-string">"Access Denied : {e}"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.access_token = <span class="code-keyword">None</span></div>
+                    </div>
+
+                    <h2>API Endpoints Used</h2>
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>API Category</th>
+                                    <th>Endpoint</th>
+                                    <th>Class/Method</th>
+                                    <th>Purpose</th>
+                                    <th>Frequency</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Authentication</td>
+                                    <td>/login/authorization/dialog</td>
+                                    <td>Authenticator.generate_access_token()</td>
+                                    <td>OAuth2 authorization URL generation</td>
+                                    <td>First-time setup</td>
+                                </tr>
+                                <tr>
+                                    <td>Authentication</td>
+                                    <td>/login/authorization/token</td>
+                                    <td>Authenticator.fetch_token()</td>
+                                    <td>Access token exchange</td>
+                                    <td>Token expiry/refresh</td>
+                                </tr>
+                                <tr>
+                                    <td>Market Data</td>
+                                    <td>/historical-candle/{interval}</td>
+                                    <td>Data_Collector.get_historic_data()</td>
+                                    <td>Historical OHLC data</td>
+                                    <td>Session start</td>
+                                </tr>
+                                <tr>
+                                    <td>Market Data</td>
+                                    <td>/intraday-candle/{interval}</td>
+                                    <td>Data_Collector.get_intraday_data()</td>
+                                    <td>Today's intraday data</td>
+                                    <td>Session start</td>
+                                </tr>
+                                <tr>
+                                    <td>Market Data</td>
+                                    <td>/market-quote/ltp</td>
+                                    <td>Data_Collector.get_option_price()</td>
+                                    <td>Real-time option prices</td>
+                                    <td>Trade entry</td>
+                                </tr>
+                                <tr>
+                                    <td>Order Management</td>
+                                    <td>/order/place</td>
+                                    <td>Bot.place_order()</td>
+                                    <td>Trade entry (SL-M orders)</td>
+                                    <td>Per trade</td>
+                                </tr>
+                                <tr>
+                                    <td>Order Management</td>
+                                    <td>/order/modify</td>
+                                    <td>Bot.update_stop_loss()</td>
+                                    <td>Stop-loss modification</td>
+                                    <td>Trailing stop adjustments</td>
+                                </tr>
+                                <tr>
+                                    <td>Portfolio</td>
+                                    <td>/portfolio/positions</td>
+                                    <td>Data_Collector.check_position()</td>
+                                    <td>Active position verification</td>
+                                    <td>Continuous monitoring</td>
+                                </tr>
+                                <tr>
+                                    <td>User</td>
+                                    <td>/user/get-funds-and-margin</td>
+                                    <td>Data_Collector.get_margin()</td>
+                                    <td>Available margin check</td>
+                                    <td>Pre-trade validation</td>
+                                </tr>
+                                <tr>
+                                    <td>WebSocket</td>
+                                    <td>wss://stream.upstox.com</td>
+                                    <td>MarketDataStreamerV3</td>
+                                    <td>Real-time market data</td>
+                                    <td>Continuous stream</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h2>WebSocket Streaming Architecture</h2>
+                    
+                    <h3>Subscription Management</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">bot.py - Dynamic Subscription</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">subscribe_to_options</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Calculate strike prices based on current index</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.ce_strike_price, <span class="code-keyword">self</span>.pe_strike_price = </div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.data_processor.get_strike_price(<span class="code-keyword">self</span>.index_price)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Get instrument keys for options</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.ce_instrument_key = <span class="code-keyword">self</span>.data_processor.get_option_key(<span class="code-string">"CE"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.pe_instrument_key = <span class="code-keyword">self</span>.data_processor.get_option_key(<span class="code-string">"PE"</span>)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Fetch historical data for options</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;ce_historic_dfs = <span class="code-keyword">self</span>.data_collector.get_historic_data(<span class="code-keyword">self</span>.ce_instrument_key)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;pe_historic_dfs = <span class="code-keyword">self</span>.data_collector.get_historic_data(<span class="code-keyword">self</span>.pe_instrument_key)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Update WebSocket subscription</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;instrument_keys_to_subscribe = [</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.main_instrument_key,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.ce_instrument_key,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.pe_instrument_key</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">self</span>.streamer:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.streamer.subscribe(instrument_keys_to_subscribe, mode=<span class="code-string">"full"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.info(f<span class="code-string">"Subscribed to instruments: {instrument_keys_to_subscribe}"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.options_subscribed = <span class="code-keyword">True</span></div>
+                    </div>
+
+                    <h3>WebSocket Event Handling</h3>
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Event Type</th>
+                                    <th>Handler Method</th>
+                                    <th>Trigger Condition</th>
+                                    <th>Actions Taken</th>
+                                    <th>Recovery</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>open</td>
+                                    <td>on_open()</td>
+                                    <td>WebSocket connection established</td>
+                                    <td>Activate wake lock, update status, play alert</td>
+                                    <td>N/A - Initial connection</td>
+                                </tr>
+                                <tr>
+                                    <td>message</td>
+                                    <td>on_message()</td>
+                                    <td>New market data received</td>
+                                    <td>Process tick data, check signals, monitor positions</td>
+                                    <td>Data validation, error handling</td>
+                                </tr>
+                                <tr>
+                                    <td>error</td>
+                                    <td>on_error()</td>
+                                    <td>WebSocket error or API error</td>
+                                    <td>Log error, update status, play alert sound</td>
+                                    <td>Auto-reconnect attempts (5s delay, 3 attempts)</td>
+                                </tr>
+                                <tr>
+                                    <td>close</td>
+                                    <td>on_close()</td>
+                                    <td>WebSocket connection closed</td>
+                                    <td>Deactivate wake lock, generate reports, play alert</td>
+                                    <td>Manual restart required after final close</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h2>API Rate Limiting & Best Practices</h2>
+                    
+                    <div class="alert alert-warning">
+                        <div class="alert-title">
+                            <div class="alert-icon">⚡</div>
+                            Rate Limiting Considerations
+                        </div>
+                        <p>Upstox API has rate limits that must be respected. The bot implements the following best practices:</p>
+                        <ul>
+                            <li><strong>WebSocket vs REST:</strong> Real-time data via WebSocket, REST for occasional calls</li>
+                            <li><strong>Batching:</strong> Multiple instrument subscriptions in single WebSocket call</li>
+                            <li><strong>Caching:</strong> Historical data fetched once per session</li>
+                            <li><strong>Error Handling:</strong> Exponential backoff for failed API calls</li>
+                            <li><strong>Monitoring:</strong> Log API response times and failure rates</li>
+                        </ul>
+                    </div>
+
+                    <h3>Error Handling Implementation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">data_collector.py - Robust API Error Handling</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">get_historic_data</span>(<span class="code-keyword">self</span>, instrument_key):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;today = date.today()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;previous_day = today - timedelta(days=<span class="code-number">7</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;apiInstance = upstox_client.HistoryV3Api(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;upstox_client.ApiClient(Config.CONFIGURATION))</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">try</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;dfs = []</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">for</span> interval <span class="code-keyword">in</span> Config.INTERVALS:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;df = Data_Processor.convert_to_df(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;apiInstance.get_historical_candle_data1(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instrument_key,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Config.TIME_UNIT,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;interval,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;str(today),</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;str(previous_day)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;dfs.append(df)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> tuple(dfs)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">except</span> ApiException <span class="code-keyword">as</span> e:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.error(f<span class="code-string">"API Exception while fetching Historic Data :{e}"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> <span class="code-keyword">None</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">except</span> Exception <span class="code-keyword">as</span> e:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.error(f<span class="code-string">"General Exception while fetching Historic Data :{e}"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> <span class="code-keyword">None</span></div>
+                    </div>
+                </section>
+
+                <!-- Performance Tracking Section -->
+                <section id="performance" class="content-section">
+                    <div class="section-header">
+                        <div class="section-icon">10</div>
+                        <div>
+                            <h1 class="section-title">Performance Tracking & Analytics</h1>
+                            <p class="section-subtitle">Comprehensive trade logging, P&L calculation, and performance analysis</p>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <div class="alert-title">
+                            <div class="alert-icon">📈</div>
+                            Performance Monitoring
+                        </div>
+                        <p>The bot implements a sophisticated performance tracking system that records every trade detail, calculates accurate P&L including all charges, and generates comprehensive reports for analysis.</p>
+                    </div>
+
+                    <h2>Trade Data Model</h2>
+                    
+                    <h3>Trade Class Structure</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">bot.py - Trade Dataclass</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line">@dataclass</div>
+                        <div class="code-line"><span class="code-keyword">class</span> <span class="code-class">Trade</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;trade_id: <span class="code-builtin">int</span> = field(init=<span class="code-keyword">False</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;instrument: <span class="code-builtin">str</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;type: <span class="code-builtin">str</span>  <span class="code-comment"># "CE" or "PE"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;entry_time: datetime</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;entry_price: <span class="code-builtin">float</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;quantity: <span class="code-builtin">int</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;trigger_price: <span class="code-builtin">float</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;target_price: <span class="code-builtin">float</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;exit_time: Optional[datetime] = <span class="code-keyword">None</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;exit_price: Optional[<span class="code-builtin">float</span>] = <span class="code-keyword">None</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;pnl: <span class="code-builtin">float</span> = <span class="code-number">0.0</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;status: <span class="code-builtin">str</span> = <span class="code-string">"ACTIVE"</span>  <span class="code-comment"># "ACTIVE" or "CLOSED"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;exit_reason: Optional[<span class="code-builtin">str</span>] = <span class="code-keyword">None</span>  <span class="code-comment"># "TARGET_HIT", "STOPLOSS_HIT", "MANUAL"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;gross_pnl: <span class="code-builtin">float</span> = <span class="code-number">0.0</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;net_pnl: <span class="code-builtin">float</span> = <span class="code-number">0.0</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;charges: <span class="code-builtin">float</span> = <span class="code-number">0.0</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;trailing_trigger: Optional[<span class="code-builtin">float</span>] = <span class="code-number">0.0</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;highest_price: Optional[<span class="code-builtin">float</span>] = <span class="code-number">0.0</span></div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;_id_counter: <span class="code-builtin">int</span> = <span class="code-number">0</span>  <span class="code-comment"># Class variable for auto-incrementing IDs</span></div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">__post_init__</span>(<span class="code-keyword">self</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;type(<span class="code-keyword">self</span>)._id_counter += <span class="code-number">1</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.trade_id = type(<span class="code-keyword">self</span>)._id_counter</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.highest_price = <span class="code-keyword">self</span>.entry_price</div>
+                    </div>
+
+                    <h3>Transcriber Class - Trade Management</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">bot.py - Transcriber Implementation</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">class</span> <span class="code-class">Transcriber</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">__init__</span>(<span class="code-keyword">self</span>, initial_margin):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.trades = []  <span class="code-comment"># List of all Trade objects</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.position = <span class="code-keyword">None</span>  <span class="code-comment"># Current position type ("CE" or "PE")</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.initial_balance = initial_margin</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.current_balance = initial_margin</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">def</span> <span class="code-function">record_entry</span>(<span class="code-keyword">self</span>, trade):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.trades.append(trade)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.position = trade.type</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.info(f<span class="code-string">"Trade entered: {trade.type} at {trade.entry_price}, Time: {trade.entry_time.strftime('%H:%M:%S')}"</span>)</div>
+                    </div>
+
+                    <h2>P&L Calculation with Real Charges</h2>
+                    
+                    <h3>Brokerage & Tax Calculation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">dry_run_services.py - Charge Calculation</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line">@staticmethod</div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">calculate_charges</span>(entry_price, exit_price, quantity, </div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;product_type=<span class="code-string">"intraday"</span>, brokerage_fee=<span class="code-number">30</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;turnover = (entry_price + exit_price) * quantity</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;buy_value = entry_price * quantity</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;sell_value = exit_price * quantity</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;brokerage = brokerage_fee * <span class="code-number">2</span>  <span class="code-comment"># ₹30 each for buy and sell</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;stt = {</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"delivery"</span>: <span class="code-number">0.001</span> * (buy_value + sell_value),</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"intraday"</span>: <span class="code-number">0.00025</span> * sell_value,  <span class="code-comment"># 0.025% on sell side only</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"futures"</span>: <span class="code-number">0.000125</span> * sell_value,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"options"</span>: <span class="code-number">0.000625</span> * sell_value  <span class="code-comment"># 0.0625% on premium for options</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;}.get(product_type, <span class="code-number">0</span>)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;txn_charges = <span class="code-number">0.0000325</span> * turnover  <span class="code-comment"># 0.00325% of turnover</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;sebi_fees = <span class="code-number">0.000001</span> * turnover  <span class="code-comment"># 0.0001% of turnover</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;stamp_duty = {</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"delivery"</span>: <span class="code-number">0.00015</span> * buy_value,  <span class="code-comment"># 0.015% on buy value</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"intraday"</span>: <span class="code-number">0.00003</span> * buy_value,  <span class="code-comment"># 0.003% on buy value</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"futures"</span>: <span class="code-number">0.00002</span> * buy_value,</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"options"</span>: <span class="code-number">0.00003</span> * buy_value</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;}.get(product_type, <span class="code-number">0</span>)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;gst = <span class="code-number">0.18</span> * (brokerage + txn_charges)  <span class="code-comment"># 18% GST on brokerage + transaction charges</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;total_charges = brokerage + stt + txn_charges + sebi_fees + stamp_duty + gst</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> total_charges</div>
+                    </div>
+
+                    <h3>Complete Trade Exit Processing</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">transcriber.py - Trade Exit Recording</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">record_exit</span>(<span class="code-keyword">self</span>, exit_price, exit_reason, timestamp):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Find active trade</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade = <span class="code-keyword">next</span>((t <span class="code-keyword">for</span> t <span class="code-keyword">in</span> <span class="code-keyword">reversed</span>(<span class="code-keyword">self</span>.trades) </div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> t.status == <span class="code-string">"ACTIVE"</span>), <span class="code-keyword">None</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">not</span> active_trade:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span></div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Update trade details</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.exit_time = timestamp</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.exit_price = exit_price</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.status = <span class="code-string">"CLOSED"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.exit_reason = exit_reason</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Calculate P&L with all charges</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;charges = Dry_Run_Services.calculate_charges(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;active_trade.entry_price, exit_price, active_trade.quantity, </div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;product_type=<span class="code-string">"intraday"</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;gross_pnl = (exit_price - active_trade.entry_price) * active_trade.quantity</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;net_pnl = gross_pnl - charges</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Update trade object</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.gross_pnl = gross_pnl</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.net_pnl = net_pnl</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.charges = charges</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trade.pnl = net_pnl</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment"># Update account balance (dry-run mode)</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.current_balance += net_pnl</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;logging.info(f<span class="code-string">"Trade exited: {active_trade.type} at {exit_price}, Time: {timestamp.strftime('%H:%M:%S')}, Net P&L: {net_pnl:.2f}"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">self</span>.position = <span class="code-keyword">None</span></div>
+                    </div>
+
+                    <h2>Performance Metrics Calculated</h2>
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>Calculation</th>
+                                    <th>Purpose</th>
+                                    <th>Target Range</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Win Rate</td>
+                                    <td>(Winning Trades / Total Trades) × 100</td>
+                                    <td>Strategy success frequency</td>
+                                    <td>40-60% (options trading)</td>
+                                </tr>
+                                <tr>
+                                    <td>Average Win</td>
+                                    <td>Total Profit / Winning Trades</td>
+                                    <td>Average profit per winning trade</td>
+                                    <td>2-3× Average Loss</td>
+                                </tr>
+                                <tr>
+                                    <td>Average Loss</td>
+                                    <td>Total Loss / Losing Trades</td>
+                                    <td>Average loss per losing trade</td>
+                                    <td>Controlled by stop-loss</td>
+                                </tr>
+                                <tr>
+                                    <td>Profit Factor</td>
+                                    <td>Gross Profit / Gross Loss</td>
+                                    <td>Overall profitability ratio</td>
+                                    <td>> 1.5</td>
+                                </tr>
+                                <tr>
+                                    <td>Risk-Reward Ratio</td>
+                                    <td>Average Win / Average Loss</td>
+                                    <td>Reward per unit of risk</td>
+                                    <td>> 2:1</td>
+                                </tr>
+                                <tr>
+                                    <td>Maximum Drawdown</td>
+                                    <td>Largest peak-to-trough decline</td>
+                                    <td>Worst-case loss scenario</td>
+                                    <td>< 20% of capital</td>
+                                </tr>
+                                <tr>
+                                    <td>Sharpe Ratio</td>
+                                    <td>(Return - Risk-free) / Std Dev</td>
+                                    <td>Risk-adjusted returns</td>
+                                    <td>> 1.0</td>
+                                </tr>
+                                <tr>
+                                    <td>Expectancy</td>
+                                    <td>(Win% × Avg Win) - (Loss% × Avg Loss)</td>
+                                    <td>Expected value per trade</td>
+                                    <td>Positive</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h2>Report Generation</h2>
+                    
+                    <h3>CSV Export Functionality</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">dry_run_services.py - CSV Export</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line">@staticmethod</div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">export_trades_to_csv</span>(trades, filename=<span class="code-string">"trade_log.csv"</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">not</span> trades:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Convert trade objects to dictionaries</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;trade_dicts = [trade.__dict__ <span class="code-keyword">for</span> trade <span class="code-keyword">in</span> trades]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;df = pd.DataFrame(trade_dicts)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Export to CSV</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">try</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;df.to_csv(filename, index=<span class="code-keyword">False</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.info(f<span class="code-string">"Trade log exported to {filename}"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">except</span> Exception <span class="code-keyword">as</span> e:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;logging.error(f<span class="code-string">"Failed to export trades: {e}"</span>)</div>
+                    </div>
+
+                    <h3>Performance Report Generation</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">dry_run_services.py - Performance Report</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line">@staticmethod</div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">generate_performance_report</span>(transcriber):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;trades = transcriber.trades</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;closed_trades = [t <span class="code-keyword">for</span> t <span class="code-keyword">in</span> trades <span class="code-keyword">if</span> t.status == <span class="code-string">"CLOSED"</span>]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;active_trades = [t <span class="code-keyword">for</span> t <span class="code-keyword">in</span> trades <span class="code-keyword">if</span> t.status == <span class="code-string">"ACTIVE"</span>]</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;print(<span class="code-string">"\n"</span> + <span class="code-string">"="</span>*<span class="code-number">60</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;print(<span class="code-string">"FINAL TRADING PERFORMANCE REPORT"</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;print(<span class="code-string">"="</span>*<span class="code-number">60</span>)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> closed_trades:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;total_pnl = <span class="code-builtin">sum</span>(t.pnl <span class="code-keyword">for</span> t <span class="code-keyword">in</span> closed_trades)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;winning_trades = [t <span class="code-keyword">for</span> t <span class="code-keyword">in</span> closed_trades <span class="code-keyword">if</span> t.pnl > <span class="code-number">0</span>]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;losing_trades = [t <span class="code-keyword">for</span> t <span class="code-keyword">in</span> closed_trades <span class="code-keyword">if</span> t.pnl <= <span class="code-number">0</span>]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;win_rate = <span class="code-builtin">len</span>(winning_trades) / <span class="code-builtin">len</span>(closed_trades) * <span class="code-number">100</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;avg_win = <span class="code-builtin">sum</span>(t.pnl <span class="code-keyword">for</span> t <span class="code-keyword">in</span> winning_trades) / <span class="code-builtin">len</span>(winning_trades) <span class="code-keyword">if</span> winning_trades <span class="code-keyword">else</span> <span class="code-number">0</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;avg_loss = <span class="code-builtin">sum</span>(t.pnl <span class="code-keyword">for</span> t <span class="code-keyword">in</span> losing_trades) / <span class="code-builtin">len</span>(losing_trades) <span class="code-keyword">if</span> losing_trades <span class="code-keyword">else</span> <span class="code-number">0</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;profit_factor = <span class="builtin">abs</span>(<span class="builtin">sum</span>(t.pnl <span class="keyword">for</span> t <span class="keyword">in</span> winning_trades) / </div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="builtin">sum</span>(t.pnl <span class="keyword">for</span> t <span class="keyword">in</span> losing_trades)) <span class="keyword">if</span> losing_trades <span class="keyword">else</span> <span class="code-builtin">float</span>(<span class="code-string">'inf'</span>)</div>
+                    </div>
+
+                    <h2>Real-time Monitoring Dashboard</h2>
+                    <p>The bot provides real-time monitoring through console output:</p>
+                    
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">Console Output Example</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-comment"># System Status</span></div>
+                        <div class="code-line">2024-01-15 10:30:00 | INFO     | bot.py:150 | launch() | Instrument Name :NIFTY</div>
+                        <div class="code-line">2024-01-15 10:30:01 | INFO     | bot.py:155 | launch() | Loaded Instrument Data</div>
+                        <div class="code-line">2024-01-15 10:30:02 | INFO     | bot.py:160 | launch() | Websocket Connection Established</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Trade Entry</span></div>
+                        <div class="code-line">2024-01-15 10:45:15 | INFO     | bot.py:450 | enter_trade() | [STAGE 1] CE Immediate Entry | VWAP Crossover + RSI Match</div>
+                        <div class="code-line">2024-01-15 10:45:16 | INFO     | transcriber.py:45 | record_entry() | Trade entered: CE at 125.50, Time: 10:45:16</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Position Monitoring</span></div>
+                        <div class="code-line">[Active Trade] CE 19500 | Stop Loss: 112.50 | Current Price: 130.25 | Target: 225.50</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Trade Exit</span></div>
+                        <div class="code-line">2024-01-15 11:15:30 | INFO     | bot.py:520 | on_message() | Target hit: 225.75 >= 225.50, exiting position.</div>
+                        <div class="code-line">2024-01-15 11:15:31 | INFO     | transcriber.py:78 | record_exit() | Trade exited: CE at 225.75, Time: 11:15:31, Net P&L: 9820.50</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Performance Report</span></div>
+                        <div class="code-line">============================================================</div>
+                        <div class="code-line">FINAL TRADING PERFORMANCE REPORT</div>
+                        <div class="code-line">============================================================</div>
+                        <div class="code-line">Initial Balance: ₹100000.00</div>
+                        <div class="code-line">Final Balance:   ₹111000.00</div>
+                        <div class="code-line">Total Trades:    5</div>
+                        <div class="code-line">Winning Trades:  3</div>
+                        <div class="code-line">Average Win:     ₹5333.33</div>
+                        <div class="code-line">Losing Trades:   2</div>
+                        <div class="code-line">Average Loss:    ₹-2500.00</div>
+                        <div class="code-line">Win Rate:        60.00%</div>
+                        <div class="code-line">Profit Factor:   3.20</div>
+                        <div class="code-line">Total P&L:       ₹11000.00</div>
+                        <div class="code-line">============================================================</div>
+                    </div>
+                </section>
+
+                <!-- Troubleshooting Section -->
+                <section id="troubleshooting" class="content-section">
+                    <div class="section-header">
+                        <div class="section-icon">11</div>
+                        <div>
+                            <h1 class="section-title">Troubleshooting & Debugging</h1>
+                            <p class="section-subtitle">Common issues, solutions, and debugging techniques</p>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <div class="alert-title">
+                            <div class="alert-icon">🔧</div>
+                            Troubleshooting Guide
+                        </div>
+                        <p>This section covers common issues encountered during bot operation and provides step-by-step solutions. Always check logs first for detailed error information.</p>
+                    </div>
+
+                    <h2>Common Issues & Solutions</h2>
+                    
+                    <div class="config-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Issue</th>
+                                    <th>Symptoms</th>
+                                    <th>Possible Causes</th>
+                                    <th>Solutions</th>
+                                    <th>Prevention</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>WebSocket Connection Failure</td>
+                                    <td>"Websocket Error" logs, no data updates</td>
+                                    <td>Network issues, API token expired, Upstox service down</td>
+                                    <td>
+                                        <ol>
+                                            <li>Check internet connection</li>
+                                            <li>Verify API token validity</li>
+                                            <li>Check Upstox status page</li>
+                                            <li>Restart bot with fresh token</li>
+                                        </ol>
+                                    </td>
+                                    <td>Regular token validation, network monitoring</td>
+                                </tr>
+                                
+                                <tr>
+                                    <td>Authentication Failures</td>
+                                    <td>"Access Denied" errors, token fetch failures</td>
+                                    <td>Invalid API credentials, expired tokens, incorrect redirect URL</td>
+                                    <td>
+                                        <ol>
+                                            <li>Verify .env file credentials</li>
+                                            <li>Regenerate API keys in Upstox console</li>
+                                            <li>Update redirect URL configuration</li>
+                                            <li>Clear .env and restart auth process</li>
+                                        </ol>
+                                    </td>
+                                    <td>Secure credential storage, regular token refresh</td>
+                                </tr>
+                                
+                                <tr>
+                                    <td>No Trades Executed</td>
+                                    <td>Bot runs but no trades entered</td>
+                                    <td>Market conditions, strategy parameters, data issues</td>
+                                    <td>
+                                        <ol>
+                                            <li>Check strategy conditions in logs</li>
+                                            <li>Verify market data is updating</li>
+                                            <li>Adjust strategy parameters</li>
+                                            <li>Check for pre-trade validation failures</li>
+                                        </ol>
+                                    </td>
+                                    <td>Regular strategy backtesting, parameter optimization</td>
+                                </tr>
+                                
+                                <tr>
+                                    <td>Order Placement Failures</td>
+                                    <td>"Order placement failed" errors</td>
+                                    <td>Insufficient margin, invalid instrument key, market closed</td>
+                                    <td>
+                                        <ol>
+                                            <li>Check available margin</li>
+                                            <li>Verify instrument key validity</li>
+                                            <li>Ensure market is open</li>
+                                            <li>Check order parameters (price, quantity)</li>
+                                        </ol>
+                                    </td>
+                                    <td>Pre-trade margin validation, instrument verification</td>
+                                </tr>
+                                
+                                <tr>
+                                    <td>High Memory Usage</td>
+                                    <td>System slowdown, memory errors</td>
+                                    <td>Memory leaks in tick buffers, large dataframes</td>
+                                    <td>
+                                        <ol>
+                                            <li>Restart bot periodically</li>
+                                            <li>Reduce historical data period</li>
+                                            <li>Implement buffer size limits</li>
+                                            <li>Monitor with system tools</li>
+                                        </ol>
+                                    </td>
+                                    <td>Regular buffer cleaning, efficient data structures</td>
+                                </tr>
+                                
+                                <tr>
+                                    <td>Stop-Loss Not Updating</td>
+                                    <td>Trailing stop not moving with price</td>
+                                    <td>ATR calculation issues, trigger conditions not met</td>
+                                    <td>
+                                        <ol>
+                                            <li>Verify ATR calculation in logs</li>
+                                            <li>Check TRAILING_TRIGGER value</li>
+                                            <li>Ensure enough price movement</li>
+                                            <li>Test in dry-run mode first</li>
+                                        </ol>
+                                    </td>
+                                    <td>Regular ATR verification, proper trigger testing</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h2>Debugging Techniques</h2>
+                    
+                    <h3>Log Analysis</h3>
+                    <p>The bot uses structured logging with multiple levels. Key log patterns to monitor:</p>
+                    
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">Log Analysis Guide</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-comment"># Enable debug logging for detailed troubleshooting</span></div>
+                        <div class="code-line">logging.basicConfig(</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;level=logging.DEBUG,  <span class="code-comment"># Change from INFO to DEBUG</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;format="%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(funcName)s() | %(message)s",</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;datefmt="%Y-%m-%d %H:%M:%S"</div>
+                        <div class="code-line">)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Key log patterns to monitor:</span></div>
+                        <div class="code-line"><span class="code-comment"># 1. WebSocket events - look for "open", "message", "error", "close"</span></div>
+                        <div class="code-line"><span class="code-comment"># 2. Strategy signals - "STAGE 1", "STAGE 2", "STAGE 3" entries</span></div>
+                        <div class="code-line"><span class="code-comment"># 3. Trade execution - "Trade entered:", "Trade exited:"</span></div>
+                        <div class="code-line"><span class="code-comment"># 4. Error conditions - "Exception", "Error", "Failed"</span></div>
+                        <div class="code-line"><span class="code-comment"># 5. Performance metrics - "Net P&L:", "Win Rate:"</span></div>
+                    </div>
+
+                    <h3>Diagnostic Commands</h3>
+                    <p>Use these Python commands for live debugging:</p>
+                    
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">Python Debugging Commands</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-comment"># Check current bot state</span></div>
+                        <div class="code-line">print(f<span class="code-string">"Bot Status: {bot.status}"</span>)</div>
+                        <div class="code-line">print(f<span class="code-string">"Position Active: {bot.position_active}"</span>)</div>
+                        <div class="code-line">print(f<span class="code-string">"Total Trades: {bot.total_trades}"</span>)</div>
+                        <div class="code-line">print(f<span class="code-string">"Current Index Price: {bot.index_price}"</span>)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Check WebSocket connection</span></div>
+                        <div class="code-line"><span class="code-keyword">if</span> hasattr(bot, <span class="code-string">'streamer'</span>):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;print(f<span class="code-string">"WebSocket Connected: {bot.streamer.connected}"</span>)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Check data buffers</span></div>
+                        <div class="code-line">print(f<span class="code-string">"Tick Buffer Size: {len(bot.tick_buffer)}"</span>)</div>
+                        <div class="code-line">print(f<span class="code-string">"CE Buffer Size: {len(bot.ce_tick_buffer)}"</span>)</div>
+                        <div class="code-line">print(f<span class="code-string">"PE Buffer Size: {len(bot.pe_tick_buffer)}"</span>)</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-comment"># Check latest candle data</span></div>
+                        <div class="code-line"><span class="code-keyword">if</span> <span class="code-string">'3'</span> <span class="code-keyword">in</span> bot.candle_df:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;df = bot.candle_df[<span class="code-string">'3'</span>]</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;print(f<span class="code-string">"Latest 3min Candle - Close: {df['close'].iloc[-1]}, VWAP: {df['vwap'].iloc[-1]}, RSI: {df['rsi'].iloc[-1]}"</span>)</div>
+                    </div>
+
+                    <h2>Performance Optimization Tips</h2>
+                    
+                    <div class="components-grid">
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">⚡</div>
+                                <div>
+                                    <div class="component-title">CPU Optimization</div>
+                                    <div class="component-subtitle">Reduce processing load</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Use vectorized Pandas operations instead of loops</li>
+                                <li>Limit historical data to necessary periods</li>
+                                <li>Implement efficient data structures</li>
+                                <li>Use appropriate data types (float32 vs float64)</li>
+                                <li>Disable unnecessary logging in production</li>
+                                <li>Profile code with cProfile to find bottlenecks</li>
+                            </ul>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">💾</div>
+                                <div>
+                                    <div class="component-title">Memory Optimization</div>
+                                    <div class="component-subtitle">Reduce memory footprint</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Implement tick buffer size limits</li>
+                                <li>Regularly clear old data from buffers</li>
+                                <li>Use efficient DataFrame operations</li>
+                                <li>Monitor memory usage with psutil</li>
+                                <li>Implement garbage collection triggers</li>
+                                <li>Consider using numpy arrays for numeric data</li>
+                            </ul>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🌐</div>
+                                <div>
+                                    <div class="component-title">Network Optimization</div>
+                                    <div class="component-subtitle">Improve data throughput</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Use WebSocket compression if available</li>
+                                <li>Limit subscribed instruments to essentials</li>
+                                <li>Implement connection pooling for REST API</li>
+                                <li>Use local caching for static data</li>
+                                <li>Monitor network latency</li>
+                                <li>Implement request batching where possible</li>
+                            </ul>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🔍</div>
+                                <div>
+                                    <div class="component-title">Debugging Tools</div>
+                                    <div class="component-subtitle">Effective troubleshooting</div>
+                                </div>
+                            </div>
+                            <ul class="component-features">
+                                <li>Use Python debugger (pdb) for complex issues</li>
+                                <li>Implement health check endpoints</li>
+                                <li>Create diagnostic reports</li>
+                                <li>Use structured logging with correlation IDs</li>
+                                <li>Implement performance metrics collection</li>
+                                <li>Create automated test scenarios</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <h2>Emergency Procedures</h2>
+                    
+                    <div class="alert alert-danger">
+                        <div class="alert-title">
+                            <div class="alert-icon">🚨</div>
+                            Emergency Response Checklist
+                        </div>
+                        <ol>
+                            <li><strong>Immediate Action:</strong> Press 'Esc' key for emergency kill</li>
+                            <li><strong>Verify Position:</strong> Check Upstox console for open positions</li>
+                            <li><strong>Manual Intervention:</strong> Close any remaining positions manually</li>
+                            <li><strong>Log Analysis:</strong> Review logs to identify root cause</li>
+                            <li><strong>System Check:</strong> Verify network, API status, system resources</li>
+                            <li><strong>Restart Procedure:</strong> Only restart after identifying and fixing issue</li>
+                            <li><strong>Dry-run Test:</strong> Test fixes in dry-run mode before live trading</li>
+                        </ol>
+                    </div>
+
+                    <h3>Recovery Script</h3>
+                    <p>Create a recovery script to handle common failure scenarios:</p>
+                    
+                    <div class="code-block">
+                        <div class="code-header">
+                            <div class="code-filename">recovery.py - Emergency Recovery</div>
+                            <button class="copy-button">Copy</button>
+                        </div>
+                        <div class="code-line"><span class="code-keyword">import</span> subprocess</div>
+                        <div class="code-line"><span class="code-keyword">import</span> time</div>
+                        <div class="code-line"><span class="code-keyword">import</span> psutil</div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">check_bot_health</span>():</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Check if bot process is running</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">for</span> proc <span class="code-keyword">in</span> psutil.process_iter([<span class="code-string">'name'</span>]):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-string">'python'</span> <span class="code-keyword">in</span> proc.info[<span class="code-string">'name'</span>].lower():</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">try</span>:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;cmdline = proc.cmdline()</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">if</span> <span class="code-keyword">any</span>(<span class="code-string">'trading_bot.py'</span> <span class="code-keyword">in</span> cmd <span class="code-keyword">for</span> cmd <span class="code-keyword">in</span> cmdline):</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> <span class="code-keyword">True</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">except</span> psutil.AccessDenied:</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">pass</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">return</span> <span class="code-keyword">False</span></div>
+                        <div class="code-line"></div>
+                        <div class="code-line"><span class="code-keyword">def</span> <span class="code-function">restart_bot</span>():</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Kill existing bot process</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;subprocess.run([<span class="code-string">'pkill'</span>, <span class="code-string">'-f'</span>, <span class="code-string">'trading_bot.py'</span>])</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;time.sleep(<span class="code-number">5</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Start bot in dry-run mode for safety</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;subprocess.Popen([<span class="code-string">'python'</span>, <span class="code-string">'trading_bot.py'</span>])</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment"># Wait and check health</span></div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;time.sleep(<span class="code-number">10</span>)</div>
+                        <div class="code-line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">return</span> check_bot_health()</div>
+                    </div>
+                </section>
+
+                <!-- FAQ Section -->
+                <section id="faq" class="content-section">
+                    <div class="section-header">
+                        <div class="section-icon">12</div>
+                        <div>
+                            <h1 class="section-title">Frequently Asked Questions</h1>
+                            <p class="section-subtitle">Common questions and detailed answers about the trading bot</p>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <div class="alert-title">
+                            <div class="alert-icon">❓</div>
+                            Quick Answers
+                        </div>
+                        <p>This section addresses the most common questions about setup, configuration, operation, and troubleshooting of the trading bot.</p>
+                    </div>
+
+                    <h2>General Questions</h2>
+                    
+                    <div class="components-grid">
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🤔</div>
+                                <div>
+                                    <div class="component-title">What instruments can I trade?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> The bot is designed for NSE index options - primarily NIFTY and BANKNIFTY. It can be extended to other instruments by modifying the instrument lookup logic in Data_Processor.</p>
+                                <p><strong>Supported:</strong> NIFTY, BANKNIFTY index options</p>
+                                <p><strong>Not Supported:</strong> Stocks, commodities, currency derivatives (without modification)</p>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">💰</div>
+                                <div>
+                                    <div class="component-title">How much capital do I need?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Minimum requirements vary based on instrument and lot size:</p>
+                                <ul>
+                                    <li><strong>NIFTY:</strong> ~₹50,000-₹100,000 for 1 lot</li>
+                                    <li><strong>BANKNIFTY:</strong> ~₹75,000-₹150,000 for 1 lot</li>
+                                    <li><strong>Margin:</strong> Additional buffer recommended (30-50% extra)</li>
+                                    <li><strong>Risk Management:</strong> Never use more than 5-10% of capital per trade</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">⏱️</div>
+                                <div>
+                                    <div class="component-title">What are the market hours?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> The bot trades only during specified market hours:</p>
+                                <ul>
+                                    <li><strong>Market Open:</strong> 09:15 AM IST (Config.MARKET_OPEN_TIME)</li>
+                                    <li><strong>Market Close:</strong> 03:00 PM IST (Config.MARKET_CLOSE_TIME)</li>
+                                    <li><strong>Options Expiry:</strong> Last Thursday of month (adjusted for holidays)</li>
+                                    <li><strong>Auto-stop:</strong> Bot stops trading automatically at close</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🔒</div>
+                                <div>
+                                    <div class="component-title">Is my data secure?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Security measures implemented:</p>
+                                <ul>
+                                    <li><strong>API Credentials:</strong> Stored in .env file (never in code)</li>
+                                    <li><strong>Access Tokens:</strong> Encrypted transmission via OAuth2</li>
+                                    <li><strong>Local Storage:</strong> No sensitive data written to disk</li>
+                                    <li><strong>Network:</strong> All communications over HTTPS/WSS</li>
+                                    <li><strong>Recommendation:</strong> Use separate API keys for bot vs manual trading</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h2>Technical Questions</h2>
+                    
+                    <div class="components-grid">
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">⚙️</div>
+                                <div>
+                                    <div class="component-title">How do I adjust strategy parameters?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> All parameters are in the Config class. Key parameters to adjust:</p>
+                                <ul>
+                                    <li><strong>Risk Parameters:</strong> SL_POINTS, TARGET_POINTS, TRAILING_TRIGGER</li>
+                                    <li><strong>Position Sizing:</strong> LOTS (multiplies instrument lot size)</li>
+                                    <li><strong>Strategy Sensitivity:</strong> VWAP_CLOSE_TOLERANCE, RSI thresholds</li>
+                                    <li><strong>Trade Frequency:</strong> TRADE_LIMIT, ENTRY_COOLDOWN</li>
+                                    <li><strong>Important:</strong> Always test changes in dry-run mode first</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">📊</div>
+                                <div>
+                                    <div class="component-title">How does the strategy work?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Three-stage VWAP-RSI crossover strategy:</p>
+                                <ol>
+                                    <li><strong>Stage 1:</strong> Immediate entry on current candle VWAP crossover + RSI confirmation</li>
+                                    <li><strong>Stage 2:</strong> Delayed entry on previous candle crossover + RSI transition</li>
+                                    <li><strong>Stage 3:</strong> Intra-bar entry on RSI threshold hit during monitoring</li>
+                                </ol>
+                                <p><strong>Exit Strategy:</strong> Fixed target + ATR-based trailing stop-loss</p>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🔧</div>
+                                <div>
+                                    <div class="component-title">Can I run multiple bots?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Yes, but not recommended:</p>
+                                <ul>
+                                    <li><strong>Complexity:</strong> Managing multiple bots increases operational overhead</li>
+                                    <li><strong>API Limits:</strong> Higher risk of hitting Upstox API rate limits</li>
+                                    <li><strong>System Resources:</strong> Multiple instances demand more CPU/RAM</li>
+                                    <li><strong>Risk Management:</strong> Harder to coordinate position sizing and exposure</li>
+                                    <li><strong>Recommendation:</strong> Focus on optimizing a single bot before scaling</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🐛</div>
+                                <div>
+                                    <div class="component-title">How do I debug issues?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Systematic debugging approach:</p>
+                                <ol>
+                                    <li><strong>Check Logs:</strong> Review console output and log files</li>
+                                    <li><strong>Verify Connectivity:</strong> Test WebSocket and API connections</li>
+                                    <li><strong>Dry-run Test:</strong> Run in simulation mode to isolate issues</li>
+                                    <li><strong>Step-by-Step:</strong> Test authentication → data feed → strategy → execution</li>
+                                    <li><strong>Community:</strong> Check GitHub issues for similar problems</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h2>Risk & Safety Questions</h2>
+                    
+                    <div class="components-grid">
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">⚠️</div>
+                                <div>
+                                    <div class="component-title">What are the risks?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Key risks to understand:</p>
+                                <ul>
+                                    <li><strong>Market Risk:</strong> Options trading can lead to 100% loss of premium</li>
+                                    <li><strong>System Risk:</strong> Technical failures, network issues, API downtime</li>
+                                    <li><strong>Strategy Risk:</strong> No strategy works in all market conditions</li>
+                                    <li><strong>Liquidity Risk:</strong> Options may have wide bid-ask spreads</li>
+                                    <li><strong>Mitigation:</strong> Use stop-losses, trade limits, and proper position sizing</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🛡️</div>
+                                <div>
+                                    <div class="component-title">What safety features are included?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Multiple safety layers:</p>
+                                <ul>
+                                    <li><strong>Emergency Kill:</strong> 'Esc' key for immediate termination</li>
+                                    <li><strong>Graceful Shutdown:</strong> 'Q' key for safe exit with position closure</li>
+                                    <li><strong>Dry-run Mode:</strong> Complete simulation without real trading</li>
+                                    <li><strong>Trade Limits:</strong> Maximum trades per session, cooldown periods</li>
+                                    <li><strong>Market Hours:</strong> Automatic trading only during specified hours</li>
+                                    <li><strong>Margin Checks:</strong> Pre-trade validation of available margin</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">📈</div>
+                                <div>
+                                    <div class="component-title">What's the expected performance?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Performance varies based on market conditions:</p>
+                                <ul>
+                                    <li><strong>Win Rate:</strong> 40-60% typical for options strategies</li>
+                                    <li><strong>Risk-Reward:</strong> Target 2:1 or better (100 points target, 13 points stop)</li>
+                                    <li><strong>Monthly Returns:</strong> Varies widely - backtest thoroughly</li>
+                                    <li><strong>Drawdowns:</strong> Expect 10-20% maximum drawdown in adverse conditions</li>
+                                    <li><strong>Important:</strong> Past performance ≠ future results. Always test with small capital first.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🔍</div>
+                                <div>
+                                    <div class="component-title">How do I monitor performance?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Multiple monitoring options:</p>
+                                <ul>
+                                    <li><strong>Console Output:</strong> Real-time trade updates and status</li>
+                                    <li><strong>CSV Logs:</strong> Complete trade history in trade_log.csv</li>
+                                    <li><strong>Performance Reports:</strong> End-of-session summary with metrics</li>
+                                    <li><strong>Upstox Console:</span></strong> Monitor positions and P&L on Upstox platform</li>
+                                    <li><strong>Custom Dashboard:</strong> Extend with web interface or database logging</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h2>Advanced Questions</h2>
+                    
+                    <div class="components-grid">
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🚀</div>
+                                <div>
+                                    <div class="component-title">Can I add new strategies?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Yes, the architecture supports multiple strategies:</p>
+                                <ol>
+                                    <li>Create new strategy class following existing pattern</li>
+                                    <li>Implement pre_check_validation() and strategy logic</li>
+                                    <li>Add strategy selection mechanism in bot configuration</li>
+                                    <li>Test thoroughly in dry-run mode</li>
+                                    <li>Consider strategy diversification (run multiple strategies)</li>
+                                </ol>
+                                <p><strong>Example Strategies:</strong> MACD crossover, Bollinger Bands, Support/Resistance breaks</p>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">🔗</div>
+                                <div>
+                                    <div class="component-title">Can I integrate with other brokers?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Possible with modifications:</p>
+                                <ul>
+                                    <li><strong>Abstract Broker Interface:</strong> Create broker-agnostic layer</li>
+                                    <li><strong>Implement Adapters:</strong> Separate classes for each broker API</li>
+                                    <li><strong>Maintain Core Logic:</strong> Keep strategy and risk management broker-independent</li>
+                                    <li><strong>Brokers Considered:</strong> Zerodha, Angel One, Alice Blue, etc.</li>
+                                    <li><strong>Challenge:</strong> Each broker has different APIs and rate limits</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">📱</div>
+                                <div>
+                                    <div class="component-title">Can I add a GUI or web interface?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Yes, several approaches:</p>
+                                <ul>
+                                    <li><strong>Web Dashboard:</strong> Flask/Django with real-time updates via WebSocket</li>
+                                    <li><strong>Desktop GUI:</strong> Tkinter, PyQt, or Electron with Python backend</li>
+                                    <li><strong>Mobile App:</strong> React Native/Flutter with REST API backend</li>
+                                    <li><strong>Monitoring Only:</strong> Start with simple web interface for status monitoring</li>
+                                    <li><strong>Recommendation:</strong> Keep trading logic separate from UI layer</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="component-card">
+                            <div class="component-header">
+                                <div class="component-icon">📚</div>
+                                <div>
+                                    <div class="component-title">Where can I learn more?</div>
+                                </div>
+                            </div>
+                            <div class="component-description">
+                                <p><strong>Answer:</strong> Recommended resources:</p>
+                                <ul>
+                                    <li><strong>Official Documentation:</strong> Upstox API docs, Python documentation</li>
+                                    <li><strong>Technical Analysis:</strong> Books on TA, options pricing, risk management</li>
+                                    <li><strong>Python Programming:</strong> Pandas, NumPy, asyncio for advanced features</li>
+                                    <li><strong>Community:</strong> GitHub repositories, trading forums, Discord communities</li>
+                                    <li><strong>Courses:</strong> Algorithmic trading, quantitative finance, Python for finance</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-success">
+                        <div class="alert-title">
+                            <div class="alert-icon">✅</div>
+                            Getting Help
+                        </div>
+                        <p>If your question isn't answered here:</p>
+                        <ol>
+                            <li><strong>Check Logs:</strong> Most issues can be diagnosed from error messages</li>
+                            <li><strong>Review Code:</strong> The bot is designed to be readable and maintainable</li>
+                            <li><strong>Community Support:</strong> Check GitHub issues and discussions</li>
+                            <li><strong>Professional Help:</strong> Consider hiring a Python developer for custom modifications</li>
+                            <li><strong>Safety First:</strong> Always test changes in dry-run mode before live trading</li>
+                        </ol>
+                    </div>
+                </section>
 
             </div>
         </div>
@@ -2050,63 +3900,43 @@
 
     <!-- Footer -->
     <footer>
-        <div class="container">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h4>Documentation</h4>
-                    <ul class="footer-links">
-                        <li><a href="#overview">System Overview</a></li>
-                        <li><a href="#architecture">Architecture Design</a></li>
-                        <li><a href="#components">Core Components</a></li>
-                        <li><a href="#strategy">Trading Strategy</a></li>
-                        <li><a href="#configuration">Configuration</a></li>
-                        <li><a href="#setup">Setup Guide</a></li>
-                    </ul>
-                </div>
-                
-                <div class="footer-section">
-                    <h4>Technical Reference</h4>
-                    <ul class="footer-links">
-                        <li><a href="#api">API Integration</a></li>
-                        <li><a href="#data-flow">Data Flow</a></li>
-                        <li><a href="#risk-management">Risk Management</a></li>
-                        <li><a href="#troubleshooting">Troubleshooting</a></li>
-                        <li><a href="#performance">Performance Tracking</a></li>
-                        <li><a href="#faq">Frequently Asked Questions</a></li>
-                    </ul>
-                </div>
-                
-                <div class="footer-section">
-                    <h4>Resources</h4>
-                    <ul class="footer-links">
-                        <li><a href="https://upstox.com/developer">Upstox API Docs</a></li>
-                        <li><a href="https://github.com/upstox">GitHub Repository</a></li>
-                        <li><a href="#">Sample Configurations</a></li>
-                        <li><a href="#">Backtesting Guide</a></li>
-                        <li><a href="#">Strategy Optimization</a></li>
-                        <li><a href="#">Community Forum</a></li>
-                    </ul>
-                </div>
-                
-                <div class="footer-section">
-                    <h4>Support</h4>
-                    <ul class="footer-links">
-                        <li><a href="#">Issue Tracker</a></li>
-                        <li><a href="#">Contact Support</a></li>
-                        <li><a href="#">Release Notes</a></li>
-                        <li><a href="#">Version History</a></li>
-                        <li><a href="#">Contribution Guide</a></li>
-                        <li><a href="#">License Information</a></li>
-                    </ul>
-                </div>
-            </div>
-            
-            <div class="copyright">
-                <p>© 2024 Upstox Algorithmic Trading Bot Documentation. This documentation is for educational purposes only.</p>
-                <p><strong>Disclaimer:</strong> Trading involves significant risk. Past performance is not indicative of future results. Always test thoroughly in dry-run mode before live trading.</p>
-                <p>Version 2.1.0 | Last Updated: January 15, 2024</p>
-            </div>
+    <div class="container">
+        <div class="footer-content">
+        
+        <div class="footer-section">
+            <h4>Documentation</h4>
+            <ul class="footer-links">
+            <li><a href="#setup">Setup Guide</a></li>
+            <li><a href="#components">Core Components</a></li>
+            <li><a href="#quickstart">Quick Start</a></li>
+            </ul>
         </div>
+
+        <div class="footer-section">
+            <h4>Resources</h4>
+            <ul class="footer-links">
+            <li><a href="https://upstox.com/developer">Upstox API Docs</a></li>
+            <li><a href="https://github.com/Omega-Xi/Adityas-Bot">GitHub Repository</a></li>
+            <li><a href="https://community.upstox.com">Community Forum</a></li>
+            </ul>
+        </div>
+
+        <div class="footer-section">
+            <h4>Support</h4>
+            <ul class="footer-links">
+            <li><a href="https://github.com/Omega-Xi/Adityas-Bot/issues">Issue Tracker</a></li>
+            <li><a href="mailto:omegaxi@omegaxi.in">Contact Support</a></li>
+            <li><a href="https://github.com/Omega-Xi/Adityas-Bot/blob/main/LICENSE">License</a></li>
+            </ul>
+        </div>
+        </div>
+        
+        <div class="copyright">
+        <p>© 2024 Upstox Algorithmic Trading Bot Documentation. For educational purposes only.</p>
+        <p><strong>Disclaimer:</strong> Trading involves significant risk. Past performance is not indicative of future results.</p>
+        <p>Version 2.1.0 | Last Updated: January 15, 2024</p>
+        </div>
+    </div>
     </footer>
 
     <script>

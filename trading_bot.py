@@ -235,9 +235,20 @@ class Dry_Run_Services:
 
         if closed_trades:
             total_pnl = sum(t.pnl for t in closed_trades)
+            win_rate = (sum(1 for t in closed_trades if t.pnl > 0) / len(closed_trades)) * 100
+            avg_win = (sum(t.pnl for t in closed_trades if t.pnl > 0) / sum(1 for t in closed_trades if t.pnl > 0)) if any(t.pnl > 0 for t in closed_trades) else 0
+            avg_loss = (sum(t.pnl for t in closed_trades if t.pnl <= 0) / sum(1 for t in closed_trades if t.pnl <= 0)) if any(t.pnl <= 0 for t in closed_trades) else 0
+            profit_factor = (sum(t.pnl for t in closed_trades if t.pnl > 0) / abs(sum(t.pnl for t in closed_trades if t.pnl <= 0))) if any(t.pnl <= 0 for t in closed_trades) else float('inf')
             logging.info(f"\nCLOSED TRADES PERFORMANCE:")
             print(f"Initial Balance: ₹{transcriber.initial_balance:.2f}")
             print(f"Final Balance:   ₹{transcriber.current_balance:.2f}")
+            print(f"Total Trades:    {len(closed_trades)}")
+            print(f"Winning Trades:  {sum(1 for t in closed_trades if t.pnl > 0)}")
+            print(f"Average Win:     ₹{avg_win:.2f}")
+            print(f"Losing Trades:   {sum(1 for t in closed_trades if t.pnl <= 0)}")
+            print(f"Average Loss:    ₹{avg_loss:.2f}")
+            print(f"Profit Factor:   {profit_factor:.2f}")
+            print(f"Win Rate:        {win_rate:.2f}%")
             print(f"Total P&L:       ₹{total_pnl:.2f}")
         else:
             logging.info("\nNo closed trades to analyze")
@@ -1194,6 +1205,9 @@ class Bot:
             logging.error("Exit Price Calculation Failed")
             return
         self.exit_price = exit_price
+        if self.available_margin < (option_price * quantity):
+            logging.error("Insufficient Margin to Enter Trade")
+            return
         self.position_active=True
         self.latest_entry_time = datetime.now(pytz.timezone('Asia/Kolkata'))
         trade=Trade(self.option_key,self.option_type,self.latest_entry_time,option_price,quantity,self.trigger_price,self.exit_price,trailing_trigger=initial_trailing_trigger)
@@ -1276,6 +1290,8 @@ class Bot:
         self.trigger_price=None
         self.exit_price=None
         self.order_ids=[]
+        if not Config.DRY_RUN:
+            self.available_margin=self.data_collector.get_margin()
         self.last_exit_time = datetime.now(pytz.timezone('Asia/Kolkata'))
         if hasattr(self, 'latest_entry_time'):
             del self.latest_entry_time
