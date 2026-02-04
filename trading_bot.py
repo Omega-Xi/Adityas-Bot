@@ -782,6 +782,7 @@ class Bot:
         self.option_price=None
         self.ce_option_price=None
         self.pe_option_price=None
+        self.entry_price=None
         self.trigger_price=None
         self.exit_price=None
         self.latest_entry_time=None
@@ -1163,6 +1164,7 @@ class Bot:
             return 
         if option_type == "CE":
             option_price = self.ce_option_price
+            self.entry_price = option_price
             self.option_key=self.ce_instrument_key
             self.option_type = "CE"
             if option_price is None:
@@ -1176,6 +1178,7 @@ class Bot:
                 return
         elif option_type == "PE":
             option_price = self.pe_option_price 
+            self.entry_price=option_price
             self.option_key=self.pe_instrument_key
             self.option_type = "PE"
             if option_price is None:
@@ -1227,8 +1230,8 @@ class Bot:
     def place_order(self,quantity):
         api_instance = upstox_client.OrderApiV3(upstox_client.ApiClient(Config.CONFIGURATION))
         body = upstox_client.PlaceOrderV3Request(quantity=quantity, product="I", validity="DAY", 
-            price=0, tag="order", instrument_token=self.option_key, 
-            order_type="SL-M", transaction_type="BUY", disclosed_quantity=0, 
+            price=self.entry_price, tag="order", instrument_token=self.option_key, 
+            order_type="SL", transaction_type="BUY", disclosed_quantity=0, 
             trigger_price=self.trigger_price, is_amo=False, slice=True)
         try:
             api_response = api_instance.place_order(body)
@@ -1272,9 +1275,9 @@ class Bot:
         for order_id in self.order_ids:
             body = upstox_client.ModifyOrderRequest(
                 validity="DAY",
-                price=0,
+                price=self.entry_price,
                 order_id=order_id,
-                order_type="SL-M",
+                order_type="SL",
                 trigger_price=new_trigger_price
             )
             try:
