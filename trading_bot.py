@@ -1219,7 +1219,7 @@ class Bot:
             logging.info(f"Order Sent {option_type} Trade | Option Price:{option_price} | Trigger Price:{self.trigger_price} | Exit Price:{self.exit_price} | Quantity:{quantity} | Trailing Trigger:{initial_trailing_trigger}")
             self.order_ids = self.place_order(quantity)
             if self.order_ids is None:
-                logging.error("Order ID Unavailable, Exiting Trade Setup")
+                logging.error("Order ID Unavailable, Trade Placement Failed")
                 self.position_active=False
                 return
         Alerts.trade_entered()
@@ -1233,8 +1233,9 @@ class Bot:
         try:
             api_response = api_instance.place_order(body)
             placement_status = api_response.status
-            if placement_status != "SUCCESS":
+            if placement_status != "success":
                 logging.error(f"Order status: {placement_status}")
+                logging.error(f"Order placement failed. Response: {api_response}")
                 return None
             order_ids = api_response.data.order_id
             logging.info(f"Order placed successfully. Order IDs: {order_ids}")
@@ -1251,7 +1252,13 @@ class Bot:
         api_instance = upstox_client.OrderApi(upstox_client.ApiClient(Config.CONFIGURATION))
         try:
             api_response = api_instance.exit_positions()
-            logging.info(api_response)
+            exit_status = api_response.status
+            if exit_status != "success":
+                logging.error(f"Exit status: {exit_status}")
+                logging.error(f"Position exit failed. Response: {api_response.errors}")
+                return
+            order_ids = api_response.data.get("order_ids", [])
+            logging.info(f"Exited Positions. Order IDs: {order_ids}")
         except ApiException as e:
             Alerts.error()
             logging.error(f"Exception When Exiting Position :{e}")
@@ -1272,13 +1279,18 @@ class Bot:
             )
             try:
                 api_response = api_instance.modify_order(body)
+                modification_status = api_response.status
+                if modification_status != "success":
+                    logging.error(f"Modification status: {modification_status}")
+                    logging.error(f"Stop loss trailing failed for Order ID {order_id}. Response: {api_response}")
+                    return self.order_ids
                 new_order_id = api_response.data.order_id
                 logging.info(f"Stop loss updated to {new_trigger_price}.Order ID: {new_order_id}")
                 order_ids.append(new_order_id)
             except ApiException as e:
                 Alerts.error()
                 logging.error(f"Exception While Updating Stop Loss :{e}")
-                return None
+                return self.order_ids
         return order_ids
 
     def cleanup_after_exit(self):
