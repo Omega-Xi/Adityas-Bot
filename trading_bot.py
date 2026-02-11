@@ -13,6 +13,7 @@ import os
 import math
 import numpy as np
 import pytz
+import time
 from dataclasses import dataclass,field
 from typing import Optional
 from datetime import datetime,date,timedelta
@@ -28,59 +29,25 @@ logging.basicConfig(
 if platform.system() != "Windows":
     logging.warning("Wake Lock is only supported on Windows. Ensure Network connection is enabled during sleep.")
 
-@dataclass
-class Trade:
-    trade_id: int = field(init=False)
-    instrument: str
-    type: str
-    entry_time: datetime
-    entry_price: float
-    quantity: int
-    trigger_price: float
-    target_price: float
-    exit_time: Optional[datetime] = None
-    exit_price: Optional[float] = None
-    pnl: float = 0.0
-    status: str = "ACTIVE"
-    exit_reason: Optional[str] = None
-    gross_pnl: float = 0.0
-    net_pnl: float = 0.0
-    charges: float = 0.0
-    trailing_trigger: Optional[float] = 0.0
-    highest_price: Optional[float] = 0.0
-
-    _id_counter: int = 0
-
-    def __post_init__(self):
-        type(self)._id_counter += 1
-        self.trade_id = type(self)._id_counter
-        self.highest_price = self.entry_price
-
 class Config:
     API_VERSION = "2.0"
     CONFIGURATION=upstox_client.Configuration()
-    DRY_RUN_MARGIN=100000
-    DRY_RUN=False
     TRADE_LIMIT=5
     MARKET_OPEN_TIME = "09:15"
     MARKET_CLOSE_TIME = "15:30"
     TIME_UNIT="minutes"
     INTERVALS=["1","3"]
-    ENTRY_COOLDOWN = 10 # cooldown period in seconds between trades
+    ENTRY_COOLDOWN = 10
     LOTS=1
     STRIKE_DIFF=50
-    STRIKE_OFFSET=2
+    STRIKE_OFFSET=1
     RSI_TRESHOLD_LOW=0
     RSI_MID_TRESHOLD=50
     RSI_TRESHOLD_HIGH=100
-    VWAP_CLOSE_TOLERANCE=0.001
-    SL_ATR_TIMEFRAME="3"
+    VWAP_CLOSE_TOLERANCE=0
     SL_POINTS=13
     TARGET_POINTS=100
-    TRAILING_TRIGGER=5
-    MINIMUM_SL_PRICE=4
-    TRAILING_MULTIPLIER=1.5
-    TRAILING_PERIOD=14
+    TRAILING_GAP=10
     INTERVAL_MAP = {
         "1": "1min",
         "3": "3min",
@@ -96,17 +63,16 @@ class Terminator:
 
     def kill_bot(self,event=None):
         self.bot.kill_switch = True
-        if not Config.DRY_RUN:
-            if self.bot.check_position():
-                self.bot.exit_trade()
-                logging.info("Open Position Found. Exiting Trade Before Shutdown")
-        if hasattr(self.bot, "streamer"):
+        if self.bot.data_collector.check_position():
+            logging.info("Open Position Found. Exiting Trade Before Shutdown")
+            self.bot.exit_trade()
+        if hasattr(self.bot, "streamer") and self.bot.streamer is not None:
             self.bot.streamer.disconnect()
         logging.info("Bot Stopped Gracefully")
 
     def emergency_kill(self,event=None):
         self.bot.kill_switch=True
-        if hasattr(self.bot, "streamer"):
+        if hasattr(self.bot, "streamer") and self.bot.streamer is not None:
             self.bot.streamer.disconnect()
         logging.critical("Emergency stop. Bot Terminated>>>")
         sys.exit(1)
@@ -117,13 +83,6 @@ class Wake_Lock:
         self.ES_SYSTEM_REQUIRED  = 0x00000001
         self.ES_DISPLAY_REQUIRED = 0x00000002
         self.active=False
-
-    def __enter__(self):
-        self.activate()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.deactivate()
     
     def activate(self):
         if platform.system() != "Windows":
@@ -172,123 +131,6 @@ class Alerts:
     @staticmethod
     def error():
         winsound.Beep(1000,1000)
-
-class Dry_Run_Services:
-    @staticmethod
-    def calculate_charges(entry_price, exit_price, quantity, product_type="intraday", brokerage_fee=30):
-        turnover = (entry_price + exit_price) * quantity
-        buy_value = entry_price * quantity
-        sell_value = exit_price * quantity
-
-        brokerage = brokerage_fee * 2
-        stt = {
-            "delivery": 0.001 * (buy_value + sell_value),
-            "intraday": 0.00025 * sell_value,
-            "futures": 0.000125 * sell_value,
-            "options": 0.000625 * sell_value
-        }.get(product_type, 0)
-
-        txn_charges = 0.0000325 * turnover
-        sebi_fees = 0.000001 * turnover
-        stamp_duty = {
-            "delivery": 0.00015 * buy_value,
-            "intraday": 0.00003 * buy_value,
-            "futures": 0.00002 * buy_value,
-            "options": 0.00003 * buy_value
-        }.get(product_type, 0)
-
-        gst = 0.18 * (brokerage + txn_charges)
-        total_charges = brokerage + stt + txn_charges + sebi_fees + stamp_duty + gst
-
-        return total_charges
-    
-    @staticmethod
-    def export_trades_to_csv(trades, filename="trade_log.csv"):
-        if not trades:
-            logging.info("No trades to export.")
-            return
-
-        trade_dicts = [trade.__dict__ for trade in trades]
-        df = pd.DataFrame(trade_dicts)
-
-        try:
-            df.to_csv(filename, index=False)
-            logging.info(f"Trade log exported to {filename}")
-        except Exception as e:
-            logging.error(f"Failed to export trades: {e}")
-
-    @staticmethod
-    def generate_performance_report(transcriber):
-        trades = transcriber.trades
-        closed_trades = [t for t in trades if t.status == "CLOSED"]
-        active_trades = [t for t in trades if t.status == "ACTIVE"]
-
-        print("\n" + "="*60)
-        print("FINAL TRADING PERFORMANCE REPORT")
-        print("="*60)
-
-        if active_trades:
-            logging.info(f"\nACTIVE TRADES: {len(active_trades)}")
-            for t in active_trades:
-                print(f"Trade {t.trade_id}: {t.type} | Entry: {t.entry_price} | Qty: {t.quantity} | Target: {t.target_price}")
-
-        if closed_trades:
-            total_pnl = sum(t.pnl for t in closed_trades)
-            win_rate = (sum(1 for t in closed_trades if t.pnl > 0) / len(closed_trades)) * 100
-            avg_win = (sum(t.pnl for t in closed_trades if t.pnl > 0) / sum(1 for t in closed_trades if t.pnl > 0)) if any(t.pnl > 0 for t in closed_trades) else 0
-            avg_loss = (sum(t.pnl for t in closed_trades if t.pnl <= 0) / sum(1 for t in closed_trades if t.pnl <= 0)) if any(t.pnl <= 0 for t in closed_trades) else 0
-            profit_factor = (sum(t.pnl for t in closed_trades if t.pnl > 0) / abs(sum(t.pnl for t in closed_trades if t.pnl <= 0))) if any(t.pnl <= 0 for t in closed_trades) else float('inf')
-            logging.info(f"\nCLOSED TRADES PERFORMANCE:")
-            print(f"Initial Balance: ₹{transcriber.initial_balance:.2f}")
-            print(f"Final Balance:   ₹{transcriber.current_balance:.2f}")
-            print(f"Total Trades:    {len(closed_trades)}")
-            print(f"Winning Trades:  {sum(1 for t in closed_trades if t.pnl > 0)}")
-            print(f"Average Win:     ₹{avg_win:.2f}")
-            print(f"Losing Trades:   {sum(1 for t in closed_trades if t.pnl <= 0)}")
-            print(f"Average Loss:    ₹{avg_loss:.2f}")
-            print(f"Profit Factor:   {profit_factor:.2f}")
-            print(f"Win Rate:        {win_rate:.2f}%")
-            print(f"Total P&L:       ₹{total_pnl:.2f}")
-        else:
-            logging.info("\nNo closed trades to analyze")
-
-        print("="*60)
-
-class Transcriber:
-    def __init__(self, initial_margin):
-        self.trades = []
-        self.position = None
-        self.initial_balance = initial_margin
-        self.current_balance = initial_margin
-
-    def record_entry(self, trade):
-        self.trades.append(trade)
-        self.position = trade.type
-        logging.info(f"Trade entered: {trade.type} at {trade.entry_price}, Time: {trade.entry_time.strftime("%H:%M:%S")}")
-
-    def record_exit(self, exit_price, exit_reason, timestamp):
-        active_trade = next((t for t in reversed(self.trades) if t.status == "ACTIVE"), None)
-        if not active_trade:
-            logging.info("No active trade to exit")
-            return
-
-        active_trade.exit_time = timestamp
-        active_trade.exit_price = exit_price
-        active_trade.status = "CLOSED"
-        active_trade.exit_reason = exit_reason
-
-        charges = Dry_Run_Services.calculate_charges(active_trade.entry_price, exit_price, active_trade.quantity, product_type="intraday")
-        gross_pnl = (exit_price - active_trade.entry_price) * active_trade.quantity
-        net_pnl = gross_pnl - charges
-
-        active_trade.gross_pnl = gross_pnl
-        active_trade.net_pnl = net_pnl
-        active_trade.charges = charges
-        active_trade.pnl = net_pnl
-
-        self.current_balance += net_pnl
-        logging.info(f"Trade exited: {active_trade.type} at {exit_price}, Time: {timestamp.strftime("%H:%M:%S")}, Net P&L: {net_pnl:.2f}")
-        self.position = None
 
 class Authenticator:
     GRANT_TYPE = 'authorization_code'
@@ -371,9 +213,8 @@ class Data_Processor:
         self.get_instruments()
         self.expiry_date=None
         self.instrument_key=None
+        self.futures_key=None
         self.option_key=None
-        self.ce_strike_price=None
-        self.pe_strike_price=None
 
     def get_instruments(self):
         self.instruments=pd.read_json("https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz")
@@ -400,7 +241,7 @@ class Data_Processor:
         time_frame=Config.INTERVAL_MAP[interval]
         resampled = df.resample(time_frame).agg({
                 "price": ["first", "max", "min", "last"],
-                "ltq": "sum"
+                "vtt": lambda x: x.iloc[-1] - x.iloc[0]
             }).dropna()
         resampled.columns = ["open", "high", "low", "close", "volume"]
         frames = [historic_df, intraday_df, resampled]
@@ -419,6 +260,26 @@ class Data_Processor:
         logging.info(f"Instrument Key: {self.instrument_key}")
         return self.instrument_key
     
+    def get_futures_key(self):
+        try:
+            futures = self.instruments[
+                (self.instruments['segment'] == "NSE_FO") &
+                (self.instruments['underlying_symbol'] == self.name) &
+                (self.instruments['instrument_type'] == "FUT")
+            ]
+            futures_sorted = futures.sort_values(by='expiry')
+            if not futures_sorted.empty:
+                nearest_future = futures_sorted.iloc[0]
+                self.futures_key = nearest_future['instrument_key']
+                logging.info(f"Nearest Futures Key: {self.futures_key}")
+                return self.futures_key
+            else:
+                logging.warning(f"No Futures Found For Instrument: {self.name}")
+                return None
+        except Exception as e:
+            logging.error(f"Error fetching futures key: {e}")
+            return None
+
     def get_lot_size(self):
         futures = self.instruments[
             (self.instruments['segment'] == "NSE_FO") &
@@ -446,14 +307,14 @@ class Data_Processor:
             logging.error(f"Unable To Fetch Expiry : {e}")
             return None
 
-    def get_option_key(self,order_type):
+    def get_option_key(self,order_type,index_price):
         if order_type is None:
             logging.warning("Order type not provided for option key retrieval")
             return None
         if order_type == "CE":
-            strike_price = self.ce_strike_price
+            strike_price = self.get_ce_strike_price(index_price)
         elif order_type == "PE":
-            strike_price = self.pe_strike_price
+            strike_price = self.get_pe_strike_price(index_price)
         self.expiry_date = pd.to_datetime(self.expiry_date)
         option_key = self.instruments[
             (self.instruments['instrument_type'] == order_type) &
@@ -462,36 +323,34 @@ class Data_Processor:
             (self.instruments['strike_price'] == strike_price)
         ]['instrument_key']
         if option_key.empty:
-            logging.critical(f"Option key not found for {order_type}, {self.name}, {self.expiry_date}, {self.strike_price}")
+            logging.critical(f"Option key not found for {order_type}, {self.name}, {self.expiry_date}, {strike_price}")
             return None
         self.option_key=option_key.squeeze()
         return self.option_key
     
-    def get_strike_price(self,index_price):
+    def get_ce_strike_price(self,index_price):
         if index_price is None:
             logging.warning("Index price not available for strike price calculation")
             return None
         else:
-            self.ce_strike_price = (math.floor(index_price / Config.STRIKE_DIFF) * Config.STRIKE_DIFF) - (Config.STRIKE_OFFSET * Config.STRIKE_DIFF)
-            self.pe_strike_price = (math.floor(index_price / Config.STRIKE_DIFF) * Config.STRIKE_DIFF) + (Config.STRIKE_OFFSET * Config.STRIKE_DIFF)
-        logging.info(f"Calculated CE Strike Price: {self.ce_strike_price}")
-        logging.info(f"Calculated PE Strike Price: {self.pe_strike_price}")
-        return self.ce_strike_price, self.pe_strike_price
+            return (math.floor(index_price / Config.STRIKE_DIFF) * Config.STRIKE_DIFF) - (Config.STRIKE_OFFSET * Config.STRIKE_DIFF)
     
+    def get_pe_strike_price(self,index_price):
+        if index_price is None:
+            logging.warning("Index price not available for strike price calculation")
+            return None
+        else:
+            return (math.floor(index_price / Config.STRIKE_DIFF) * Config.STRIKE_DIFF) + (Config.STRIKE_OFFSET * Config.STRIKE_DIFF)
+
 class Data_Collector:
-    def __init__(self,access_token,dry_run):
+    def __init__(self,access_token):
         self.access_token=access_token
         Config.CONFIGURATION = upstox_client.Configuration()
         Config.CONFIGURATION.access_token = self.access_token
-        self.dry_run=dry_run
         self.option_price=None
         self.available_margin=None
 
     def get_margin(self):
-        if self.dry_run:
-            self.available_margin=Config.DRY_RUN_MARGIN
-            logging.info("Dry Run Margin Fetched")
-            return self.available_margin
         api_instance = upstox_client.UserApi(upstox_client.ApiClient(Config.CONFIGURATION))
         try:
             # Get User Fund And Margin
@@ -561,14 +420,18 @@ class Data_Collector:
         api_instance = upstox_client.PortfolioApi(upstox_client.ApiClient(Config.CONFIGURATION))
         try:
             api_response = api_instance.get_positions(Config.API_VERSION)
-            return bool(api_response.data)
+            if not api_response or not api_response.data:
+                return False
+            for pos in api_response.data:
+                if pos.quantity != 0:
+                    return True
+            return False
         except ApiException as e:
             logging.error(f"Exception when fetching position data :{e}")
             return None
 
 class Calculations:
 
-    # --- VWAP Calculation ---
     @staticmethod
     def calculate_vwap(df):
         df["typical_price"] = (df["high"] + df["low"] + df["close"]) / 3
@@ -577,8 +440,7 @@ class Calculations:
         df["cum_volume"] = df["volume"].groupby(df["date"]).cumsum()
         df["vwap"] = df["cum_vol_price"] / df["cum_volume"]
         return df
-    
-    # --- RSI Calculation ---
+
     @staticmethod
     def calculate_rsi(df):
         delta = df["close"].diff()
@@ -589,42 +451,12 @@ class Calculations:
         rs = avg_gain / avg_loss.replace(0, np.nan)
         df["rsi"] = 100 - (100 / (1 + rs.fillna(0)))
         return df
-    
-    # --- ATR Calculation (RMA) ---
-    @staticmethod
-    def calculate_atr(df):
-        df['high_low']   = df['high'] - df['low']
-        df['high_close'] = (df['high'] - df['close'].shift()).abs()
-        df['low_close']  = (df['low'] - df['close'].shift()).abs()
-        df['tr']         = df[['high_low', 'high_close', 'low_close']].max(axis=1)
-        df['atr'] = df['tr'].ewm(alpha=1/14, adjust=False).mean()
-        return df
 
-    # --- DX and ADX (RMA) ---
-    @staticmethod
-    def calculate_adx(df):
-        if 'atr' not in df.columns:
-            df = Calculations.calculate_atr(df)
-        up_move   = df['high'].diff()
-        down_move = -df['low'].diff()
-        df['plus_dm']  = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-        df['minus_dm'] = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
-        plus_dm_rma  = df['plus_dm'].ewm(alpha=1/14, adjust=False).mean()
-        minus_dm_rma = df['minus_dm'].ewm(alpha=1/14, adjust=False).mean()
-        df['plus_di']  = 100 * (plus_dm_rma / df['atr'])
-        df['minus_di'] = 100 * (minus_dm_rma / df['atr'])
-        df['dx'] = 100 * (abs(df['plus_di'] - df['minus_di']) / (df['plus_di'] + df['minus_di']))
-        df['dx'] = df['dx'].fillna(0) 
-        df['adx'] = df['dx'].ewm(alpha=1/14, adjust=False).mean()
-        return df
-
-    # --- Quantity Calculation ---
     @staticmethod
     def calculate_quantity(lot_size):
         quantity = Config.LOTS * lot_size
         return quantity
-    
-    # --- Trigger Price Calculation ---
+
     @staticmethod
     def calculate_trigger_price(option_price):
         if option_price is None:
@@ -632,8 +464,7 @@ class Calculations:
             return None
         trigger_price = option_price - Config.SL_POINTS
         return trigger_price
-    
-    # --- Exit Price Calculation ---
+
     @staticmethod
     def calculate_exit_price(option_price):
         if option_price is None:
@@ -641,38 +472,23 @@ class Calculations:
             return None
         exit_price = option_price + Config.TARGET_POINTS
         return exit_price
-    
-    # --- SL Trigger Calculation ---
-    @staticmethod
-    def calculate_sl_trigger(option_price, trigger_price, current_atr):
-        if option_price is None:
-            logging.error("Option Price not available")
-            return None
-        if option_price >= trigger_price + Config.TRAILING_TRIGGER:
-            new_trigger = option_price - (Config.TRAILING_MULTIPLIER * Config.SL_POINTS + current_atr)
-            if new_trigger > trigger_price:
-                return new_trigger
-        return trigger_price
-    
-    # --- Calculate All Indicators ---
+
     @staticmethod
     def calculate_indicators(candle_df):
         df = candle_df.copy()
         df = Calculations.calculate_rsi(df)
-        df = Calculations.calculate_atr(df)
-        df = Calculations.calculate_adx(df)
         df = Calculations.calculate_vwap(df)
         return df
-    
+
 class Strategies:
 
     @staticmethod
     def pre_check_validation(bot):
         if bot.position_active:
             if bot.option_type  == "CE":
-                print(f"[Active Trade] CE {bot.ce_strike_price} | Stop Loss: {bot.trigger_price} | Current Price: {bot.ce_option_price} | Target: {bot.exit_price}  ",end="\r") 
+                print(f"[Active Trade] CE | Stop Loss: {bot.trigger_price} | Current Price: {bot.current_price} | Target: {bot.exit_price}  ",end="\r") 
             else:
-                print(f"[Active Trade] PE {bot.pe_strike_price} | Stop Loss: {bot.trigger_price} | Current Price: {bot.pe_option_price} | Target: {bot.exit_price}  ",end="\r") 
+                print(f"[Active Trade] PE | Stop Loss: {bot.trigger_price} | Current Price: {bot.current_price} | Target: {bot.exit_price}  ",end="\r") 
             return False
         elif not bot.can_enter_trade():
             print("Bot in Sleep Mode",end="\r") 
@@ -684,15 +500,11 @@ class Strategies:
             return True
         
     @staticmethod
-    def vwap_rsi_strategy(bot,option_type,indicator_results:dict):
+    def vwap_rsi_strategy(bot,indicator_results:dict):
         if Strategies.pre_check_validation(bot):
             df=indicator_results.get("3")
-            df_underlying=bot.candle_df.get("3")
             if df is None:
                 logging.warning("3-minute indicator data not available for VWAP RSI strategy")
-                return
-            if df_underlying is None:
-                logging.warning("3-minute underlying data not available for VWAP RSI strategy")
                 return
             if len(df) < 15: 
                 logging.warning("Not enough data for VWAP RSI signal check") 
@@ -705,100 +517,75 @@ class Strategies:
             vwap_last = df["vwap"].iloc[-3]
             rsi_curr = df["rsi"].iloc[-1]
             rsi_prev = df["rsi"].iloc[-2]
-            underlying_rsi_curr = df_underlying["rsi"].iloc[-1]
 
-            vwap_crossover_curr = (close_prev < vwap_prev and close_curr > vwap_curr * (1 + Config.VWAP_CLOSE_TOLERANCE))
-            vwap_crossover_prev = (close_last < vwap_last and close_prev > vwap_prev * (1 + Config.VWAP_CLOSE_TOLERANCE))
-            rsi_borderline_prev = 40 < rsi_prev < Config.RSI_MID_TRESHOLD
-            if option_type == "PE":
-                rsi_strong = (Config.RSI_MID_TRESHOLD < rsi_curr < Config.RSI_TRESHOLD_HIGH) and (Config.RSI_TRESHOLD_LOW < underlying_rsi_curr < Config.RSI_MID_TRESHOLD)
-            else:
-                rsi_strong = (Config.RSI_MID_TRESHOLD < rsi_curr < Config.RSI_TRESHOLD_HIGH) and (Config.RSI_MID_TRESHOLD < underlying_rsi_curr < Config.RSI_TRESHOLD_HIGH)
+            print(f"Price: {close_curr:.2f} | VWAP: {vwap_curr:.2f} | RSI: {rsi_curr:.2f}  ", end="\r")
 
-            if vwap_crossover_curr and rsi_strong:
-                logging.info(
-                    f"[STAGE 1] {option_type} Immediate Entry | "
-                    f"VWAP Crossover + RSI Match | "
-                    f"Price:{close_curr:.2f} > VWAP:{vwap_curr:.2f} | "
-                    f"Und RSI:{underlying_rsi_curr:.2f} | {option_type} RSI:{rsi_curr:.2f} | "
-                    f"Index:{bot.index_price}"
-                )
-                bot.enter_trade(option_type)
+            vwap_crossover_up_curr = (close_prev < vwap_prev and close_curr > vwap_curr * (1 + Config.VWAP_CLOSE_TOLERANCE))
+            vwap_crossover_up_prev = (close_last < vwap_last and close_prev > vwap_prev * (1 + Config.VWAP_CLOSE_TOLERANCE))
+            rsi_borderline_up_prev = 40 < rsi_prev < Config.RSI_MID_TRESHOLD
+            rsi_strong_up = (Config.RSI_MID_TRESHOLD < rsi_curr < Config.RSI_TRESHOLD_HIGH)
+            vwap_crossover_down_curr = (close_prev > vwap_prev and close_curr < vwap_curr * (1 - Config.VWAP_CLOSE_TOLERANCE))
+            vwap_crossover_down_prev = (close_last > vwap_last and close_prev < vwap_prev * (1 - Config.VWAP_CLOSE_TOLERANCE))
+            rsi_borderline_down_prev = 60 > rsi_prev > Config.RSI_MID_TRESHOLD
+            rsi_strong_down = (Config.RSI_TRESHOLD_LOW < rsi_curr < Config.RSI_MID_TRESHOLD)
 
-            elif vwap_crossover_prev and rsi_strong and rsi_borderline_prev:
-                logging.info(
-                    f"[STAGE 2] {option_type} Delayed Entry | "
-                    f"VWAP Crossover Prev + RSI Match | "
-                    f"Price:{close_curr:.2f} > VWAP:{vwap_curr:.2f} | "
-                    f"Und RSI:{underlying_rsi_curr:.2f} | {option_type} RSI:{rsi_curr:.2f} | "
-                    f"Index:{bot.index_price}"
-                )
-                bot.enter_trade(option_type)
+            if vwap_crossover_up_curr and rsi_strong_up:
+                logging.info(f"[STAGE 1] CE Immediate Entry VWAP Crossover + RSI Match | Price:{close_curr:.2f} > VWAP:{vwap_curr:.2f} | RSI:{rsi_curr:.2f} | Index:{bot.index_price}")
+                bot.enter_trade("CE")
 
-            elif vwap_crossover_prev and rsi_strong:
-                logging.info(
-                    f"[STAGE 3] {option_type} RSI threshold hit during monitoring | "
-                    f"Price:{close_curr:.2f} | VWAP:{vwap_curr:.2f} | "
-                    f"Und RSI:{underlying_rsi_curr:.2f} | {option_type} RSI:{rsi_curr:.2f} | "
-                    f"Entering intrabar..."
-                )
-                bot.enter_trade(option_type)
+            elif vwap_crossover_up_prev and rsi_strong_up and rsi_borderline_up_prev:
+                logging.info(f"[STAGE 2] CE Delayed Entry VWAP Crossover Prev + RSI Match | Price:{close_curr:.2f} > VWAP:{vwap_curr:.2f} | RSI:{rsi_curr:.2f} | Index:{bot.index_price}")
+                bot.enter_trade("CE")
+
+            elif vwap_crossover_down_curr and rsi_strong_down:
+                logging.info(f"[STAGE 1] PE Immediate Entry VWAP Crossover + RSI Match | Price:{close_curr:.2f} < VWAP:{vwap_curr:.2f} | RSI:{rsi_curr:.2f} | Index:{bot.index_price}")
+                bot.enter_trade("PE")
+
+            elif vwap_crossover_down_prev and rsi_strong_down and rsi_borderline_down_prev:
+                logging.info(f"[STAGE 2] PE Delayed Entry VWAP Crossover Prev + RSI Match | Price:{close_curr:.2f} < VWAP:{vwap_curr:.2f} | RSI:{rsi_curr:.2f} | Index:{bot.index_price}")
+                bot.enter_trade("PE")
 
 class Bot:
     def __init__(self):
         self.authenticator=Authenticator()
         self.access_token=self.authenticator.get_access_token()
         self.data_processor=Data_Processor()
-        self.data_collector=Data_Collector(self.access_token,Config.DRY_RUN)
+        self.data_collector=Data_Collector(self.access_token)
         self.kill_switch=False
         self.position_active=False
-        self.options_subscribed=False
-        self.transcriber=None
         self.total_trades=0
         self.status="OFFLINE"
         self.tick_buffer = []
-        self.ce_tick_buffer = []
-        self.pe_tick_buffer = []
         self.candle_df={}
         self.historic_df={}
         self.intraday_df={}
-        self.ce_candle_df={}
-        self.ce_historic_df={}
-        self.ce_intraday_df={}
-        self.pe_candle_df={}
-        self.pe_historic_df={}
-        self.pe_intraday_df={}
-        self.ce_strike_price=None
-        self.pe_strike_price=None
         self.entry_lock=threading.Lock()
         self.exit_lock=threading.Lock()
         self.wake_lock=Wake_Lock()
         self.option_type=None
         self.option_key=None
         self.index_price=None
+        self.futures_price=None
+        self.strike_price=None
         self.option_price=None
-        self.ce_option_price=None
-        self.pe_option_price=None
+        self.current_price=None
         self.entry_price=None
         self.trigger_price=None
         self.exit_price=None
         self.latest_entry_time=None
-        self.order_ids=[]
         self.last_exit_time = None
         self.streamer=None
         self.available_margin=None
         self.name=None
         self.lot_size=None
         self.main_instrument_key=None
-        self.ce_instrument_key=None
-        self.pe_instrument_key=None
+        self.futures_key=None
         self.expiry_date=None
 
     def can_enter_trade(self):
-        now_aware = datetime.now(pytz.timezone('Asia/Kolkata'))
-        current_time = now_aware.time()
-        if current_time < pd.to_datetime(Config.MARKET_OPEN_TIME).time() or current_time > pd.to_datetime(Config.MARKET_CLOSE_TIME).time():
-            return False
+        return self.market_is_open() and self.cooldown_has_passed()
+
+    def cooldown_has_passed(self):
         if self.last_exit_time is None:
             return True
         now_aware = datetime.now(pytz.timezone('Asia/Kolkata'))
@@ -810,45 +597,54 @@ class Bot:
         current_time = now_aware.time()
         return pd.to_datetime(Config.MARKET_OPEN_TIME).time() <= current_time <= pd.to_datetime(Config.MARKET_CLOSE_TIME).time()
 
-    # --- Check for 3-minute marks in case of launching after market opens ---
     def is_three_min_mark(self, ts, tolerance=2):
-        # Find the nearest 3-minute boundary before or equal to ts
         boundary_minute = (ts.minute // 3) * 3
         boundary = ts.replace(minute=boundary_minute, second=0, microsecond=0)
         return 0 <= (ts - boundary).total_seconds() <= tolerance
-    
+
     def launch(self):
         self.name=input("Instrument Name :").upper()
         self.available_margin=self.data_collector.get_margin()
-        self.transcriber=Transcriber(self.available_margin)
         self.main_instrument_key=self.data_processor.get_instrument_key(self.name)
         self.lot_size=self.data_processor.get_lot_size()
         self.expiry_date=self.data_processor.get_expiry_date()
-        historic_dfs=self.data_collector.get_historic_data(self.main_instrument_key)
+        self.futures_key=self.data_processor.get_futures_key()
+        while not (self.is_three_min_mark(datetime.now()) and self.market_is_open()):
+            now = datetime.now().strftime("%H:%M:%S")
+            print(f"Bot idle → waiting for 3‑minute mark/market open [{now}]", end="\r")
+            time.sleep(0.5)
+            if self.kill_switch:
+                return
+        if self.preload_futures_data():
+            self.start_connection()
+
+    def preload_futures_data(self):
+        historic_dfs=self.data_collector.get_historic_data(self.futures_key)
         if historic_dfs is None:
-            logging.critical("Historical Data unavailable. Bot cannot launch safely")
+            logging.critical("Futures Historical Data unavailable. Bot cannot launch safely")
             Alerts.error()
             self.status="ERROR"
-            return
+            return False
         else:
-            logging.info("Fetched Historic Data")
+            logging.info("Fetched Futures Historic Data")
             self.historic_df=dict(zip(Config.INTERVALS, historic_dfs))
-        intraday_dfs=self.data_collector.get_intraday_data(self.main_instrument_key)
+        intraday_dfs=self.data_collector.get_intraday_data(self.futures_key)
         if intraday_dfs is None:
-            logging.critical("Intraday Data unavailable. Bot cannot launch safely")
+            logging.critical("Futures Intraday Data unavailable. Bot cannot launch safely")
             Alerts.error()
             self.status="ERROR"
-            return
+            return False
         else:
-            logging.info("Fetched Intraday Data")
+            logging.info("Fetched Futures Intraday Data")
             self.intraday_df=dict(zip(Config.INTERVALS,intraday_dfs))
-        self.start_connection()
+        return True
 
     def start_connection(self):
+        instruments_to_subscribe=[self.main_instrument_key,self.futures_key]
         Config.CONFIGURATION.access_token=self.access_token
         self.streamer = MarketDataStreamerV3(
             upstox_client.ApiClient(Config.CONFIGURATION),
-            [self.main_instrument_key],  # Only subscribe to main instrument initially
+            instruments_to_subscribe,
             mode="full"
         )
         self.streamer.auto_reconnect(True, 5, 3)
@@ -873,9 +669,6 @@ class Bot:
         logging.info("Websocket Disconnected")
         self.status="OFFLINE"
         Alerts.websocket_disconnected()
-        if Config.DRY_RUN:
-            Dry_Run_Services.generate_performance_report(self.transcriber)
-            Dry_Run_Services.export_trades_to_csv(self.transcriber.trades)
         self.wake_lock.deactivate()
 
     def on_message(self,message):
@@ -883,204 +676,36 @@ class Bot:
             logging.warning("Kill Switch Active. Ignoring Incoming Messages")
             return    
         if "feeds" not in message or not message["feeds"]:
-            logging.warning("No Feed Data Aailable")
+            logging.warning("No Feed Data Available")
             return
         data = message["feeds"]
         feed_timestamp = pd.to_datetime(int(message['currentTs']),unit='ms').tz_localize('UTC').tz_convert('Asia/Kolkata')
         for instrument_key, feed_data in data.items():
             try:
-                #Analyze index data
+                #Analyze Index Data
                 if instrument_key == self.main_instrument_key:
                     ltp = feed_data['fullFeed']['indexFF']['ltpc']['ltp']
-                    ltq = feed_data['fullFeed']['indexFF']['ltpc'].get("ltq", 0)
                     self.index_price = ltp
-                    self.tick_buffer.append({"timestamp": feed_timestamp, "price": ltp, "ltq": ltq})
-                    if not self.options_subscribed and self.market_is_open():
-                        if self.is_three_min_mark(feed_timestamp):
-                            self.subscribe_to_options()
-                    elif self.options_subscribed and self.market_is_open():
-                        ce_strike_price, pe_strike_price = self.data_processor.get_strike_price(self.index_price)
-                        if ce_strike_price!=self.ce_strike_price and pe_strike_price!=self.pe_strike_price:
-                            if self.is_three_min_mark(feed_timestamp):
-                                self.update_options(ce_strike_price,pe_strike_price)
+                #Analyze Futures Data
+                if instrument_key == self.futures_key:
+                    ltp = feed_data['fullFeed']['marketFF']['ltpc']['ltp']
+                    vtt = int(feed_data['fullFeed']['marketFF']['vtt'])
+                    self.futures_price = ltp
+                    self.tick_buffer.append({"timestamp": feed_timestamp, "price": ltp, "vtt": vtt})
                     self.aggregate_candles()
-                    if not self.position_active and not self.options_subscribed:
-                        print(f"[Bot Active] Index LTP: {ltp:<10} | Time: {feed_timestamp.strftime('%H:%M:%S'):>8}", end="\r")
-                    elif not self.position_active and self.options_subscribed and self.ce_candle_df and self.pe_candle_df:
-                        current_ce_vwap=self.ce_candle_df["3"]["vwap"].iloc[-1]
-                        current_ce_price=self.ce_candle_df["3"]["close"].iloc[-1]
-                        current_ce_rsi=self.ce_candle_df["3"]["rsi"].iloc[-1]
-                        current_pe_vwap=self.pe_candle_df["3"]["vwap"].iloc[-1]
-                        current_pe_price=self.pe_candle_df["3"]["close"].iloc[-1]
-                        current_pe_rsi=self.pe_candle_df["3"]["rsi"].iloc[-1]
-                        print(f"CE VWAP:{current_ce_vwap:.2f}   Price:{current_ce_price:.2f}    RSI:{current_ce_rsi:.2f}   |PE VWAP:{current_pe_vwap:.2f}   Price:{current_pe_price:.2f}    RSI:{current_pe_rsi:.2f}    ", end="\r")
-                #Analyze ce option data
-                if instrument_key == self.ce_instrument_key:
-                    ce_option_ltp = feed_data['fullFeed']['marketFF']['ltpc']['ltp']
-                    ce_option_ltq = int(feed_data['fullFeed']['marketFF']['ltpc']['ltq'])
-                    self.ce_option_price = ce_option_ltp
-                    self.ce_tick_buffer.append({"timestamp": feed_timestamp, "price": ce_option_ltp, "ltq": ce_option_ltq})
-                    self.aggregate_ce_candles()
-                #Analyze pe option data
-                if instrument_key == self.pe_instrument_key:
-                    pe_option_ltp = feed_data['fullFeed']['marketFF']['ltpc']['ltp']
-                    pe_option_ltq = int(feed_data['fullFeed']['marketFF']['ltpc']['ltq'])
-                    self.pe_option_price = pe_option_ltp
-                    self.pe_tick_buffer.append({"timestamp": feed_timestamp, "price": pe_option_ltp, "ltq": pe_option_ltq})
-                    self.aggregate_pe_candles()
-                
                 if self.exit_lock.acquire(blocking=False):
                     try:
-                        if self.position_active and self.option_type == "CE" and feed_timestamp > (self.latest_entry_time + pd.Timedelta(seconds=1)):
-                            current_trade = next((t for t in reversed(self.transcriber.trades) if t.status == "ACTIVE"), None)
-                            if not current_trade:
-                                logging.warning("No active trade found.")
-                                return
-                            
-                            # Analyze CE option for exit
-                            if instrument_key == self.ce_instrument_key:
-                                ce_option_ltp = feed_data['fullFeed']['marketFF']['ltpc']['ltp']
-                                timestamp = pd.to_datetime(int(message['currentTs']), unit='ms').tz_localize('UTC').tz_convert('Asia/Kolkata')
+                        if hasattr(self, 'option_key') and instrument_key == self.option_key and self.position_active and feed_timestamp>(self.latest_entry_time + pd.Timedelta(seconds=1)):
+                            ltp = feed_data['fullFeed']['marketFF']['ltpc']['ltp']
+                            self.current_price=ltp
+                            timestamp = pd.to_datetime(int(message['currentTs']), unit='ms').tz_localize('UTC').tz_convert('Asia/Kolkata')
 
-                                # Trailing Stop Loss Logic
-                                if ce_option_ltp > current_trade.highest_price:
-                                    current_trade.highest_price = ce_option_ltp
-                                    if ce_option_ltp >= current_trade.entry_price + Config.TRAILING_TRIGGER:
-                                        self.trigger_price = max(math.floor(current_trade.entry_price) + Config.MINIMUM_SL_PRICE, self.trigger_price)
-                                        current_atr = None
-                                        if not self.ce_candle_df[Config.SL_ATR_TIMEFRAME].empty and 'atr' in self.ce_candle_df[Config.SL_ATR_TIMEFRAME].columns:
-                                            current_atr = self.ce_candle_df[Config.SL_ATR_TIMEFRAME]["atr"].iloc[-1]
-                                        if current_atr is None or pd.isna(current_atr):
-                                            current_atr = Config.SL_POINTS
-                                        new_trigger = Calculations.calculate_sl_trigger(ce_option_ltp, self.trigger_price, current_atr)
-                                        if new_trigger > self.trigger_price:
-                                            self.trigger_price = new_trigger
-                                            current_trade.trailing_trigger = new_trigger
-                                            if not Config.DRY_RUN:
-                                                self.order_ids=self.update_stop_loss(self.trigger_price)
-
-                                # Check for Stop Loss Hit
-                                if not Config.DRY_RUN:
-                                    self.position_active = self.data_collector.check_position()
-                                    if not self.position_active:
-                                        logging.info(f"Stop loss hit: {ce_option_ltp} <= {self.trigger_price}, position exited via SL-M.")
-                                        self.transcriber.record_exit(ce_option_ltp, "STOPLOSS_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                        Alerts.trade_exited()
-                                        return
-                                if ce_option_ltp <= self.trigger_price:
-                                    logging.info(f"Stop loss hit: {ce_option_ltp} <= {self.trigger_price}, exiting position.")
-                                    if Config.DRY_RUN:
-                                        self.position_active = False
-                                        self.transcriber.record_exit(ce_option_ltp, "STOPLOSS_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                        Alerts.trade_exited()
-                                    else:
-                                        self.position_active = self.data_collector.check_position()
-                                        if not self.position_active:
-                                            self.transcriber.record_exit(ce_option_ltp, "STOPLOSS_HIT", timestamp)
-                                            self.cleanup_after_exit()
-                                            Alerts.trade_exited()
-                                            return
-                                        else:
-                                            logging.warning("SL Hit Failed Exiting Manually")
-                                            self.cancel_pending_orders()
-                                            self.exit_trade()
-                                            self.transcriber.record_exit(ce_option_ltp, "STOPLOSS_HIT", timestamp)
-                                            self.cleanup_after_exit()
-                                            Alerts.trade_exited()
-
-                                    
-                                # Check for Target Hit
-                                if ce_option_ltp >= self.exit_price:
-                                    logging.info(f"Target hit: {ce_option_ltp} >= {self.exit_price}, exiting position.")
-                                    if Config.DRY_RUN:
-                                        self.position_active = False
-                                        self.transcriber.record_exit(ce_option_ltp, "TARGET_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                    else:
-                                        self.position_active = False
-                                        self.cancel_pending_orders()
-                                        self.exit_trade()
-                                        self.transcriber.record_exit(ce_option_ltp, "TARGET_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                        return  
-                        
-                        elif self.position_active and self.option_type == "PE" and feed_timestamp > (self.latest_entry_time + pd.Timedelta(seconds=1)):
-                            current_trade = next((t for t in reversed(self.transcriber.trades) if t.status == "ACTIVE"), None)
-                            if not current_trade:
-                                logging.warning("No active trade found.")
+                            if not self.data_collector.check_position():
+                                logging.info(f"Trade Exited By Broker: {ltp} at {timestamp}")
+                                self.cleanup_after_exit()
+                                Alerts.trade_exited()
                                 return
 
-                            # Analyze PE option for exit
-                            if instrument_key == self.pe_instrument_key:
-                                pe_option_ltp = feed_data['fullFeed']['marketFF']['ltpc']['ltp']
-                                timestamp = pd.to_datetime(int(message['currentTs']), unit='ms').tz_localize('UTC').tz_convert('Asia/Kolkata')
-
-                                # Trailing Stop Loss Logic
-                                if pe_option_ltp > current_trade.highest_price:
-                                    current_trade.highest_price = pe_option_ltp
-                                    if pe_option_ltp >= current_trade.entry_price + Config.TRAILING_TRIGGER:
-                                        self.trigger_price = max(math.floor(current_trade.entry_price) + Config.MINIMUM_SL_PRICE, self.trigger_price)
-                                        current_atr = None
-                                        if not self.pe_candle_df[Config.SL_ATR_TIMEFRAME].empty and 'atr' in self.pe_candle_df[Config.SL_ATR_TIMEFRAME].columns:
-                                            current_atr = self.pe_candle_df[Config.SL_ATR_TIMEFRAME]["atr"].iloc[-1]
-                                        if current_atr is None or pd.isna(current_atr):
-                                            current_atr = Config.SL_POINTS
-                                        new_trigger = Calculations.calculate_sl_trigger(pe_option_ltp, self.trigger_price, current_atr)
-                                        if new_trigger > self.trigger_price:
-                                            self.trigger_price = new_trigger
-                                            current_trade.trailing_trigger = new_trigger
-                                            if not Config.DRY_RUN:
-                                                self.order_ids=self.update_stop_loss(self.trigger_price)
-                                
-                                # Check for Stop Loss Hit
-                                if not Config.DRY_RUN:
-                                    self.position_active = self.data_collector.check_position()
-                                    if not self.position_active:
-                                        logging.info(f"Stop loss hit: {pe_option_ltp} <= {self.trigger_price}, position exited via SL-M.")
-                                        self.transcriber.record_exit(pe_option_ltp, "STOPLOSS_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                        Alerts.trade_exited()
-                                        return
-                                if pe_option_ltp <= self.trigger_price:
-                                    logging.info(f"Stop loss hit: {pe_option_ltp} <= {self.trigger_price}, exiting position.")
-                                    if Config.DRY_RUN:
-                                        self.position_active = False
-                                        self.transcriber.record_exit(pe_option_ltp, "STOPLOSS_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                    else:
-                                        self.position_active = self.data_collector.check_position()
-                                        if not self.position_active:
-                                            self.transcriber.record_exit(pe_option_ltp, "STOPLOSS_HIT", timestamp)
-                                            self.cleanup_after_exit()
-                                            Alerts.trade_exited()
-                                            return
-                                        else:
-                                            logging.warning("SL Hit Failed Exiting Manually")
-                                            self.cancel_pending_orders()
-                                            self.exit_trade()
-                                            self.transcriber.record_exit(pe_option_ltp, "STOPLOSS_HIT", timestamp)
-                                            self.cleanup_after_exit()
-                                            Alerts.trade_exited()
-                                    
-                                # Check for Target Hit
-                                if pe_option_ltp >= self.exit_price:
-                                    logging.info(f"Target hit: {pe_option_ltp} >= {self.exit_price}, exiting position.")
-                                    if Config.DRY_RUN:
-                                        self.position_active = False
-                                        self.transcriber.record_exit(pe_option_ltp, "TARGET_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                        Alerts.trade_exited()
-                                    else:
-                                        self.position_active = self.data_collector.check_position()
-                                        self.exit_trade()
-                                    if not self.position_active:
-                                        self.cancel_pending_orders()
-                                        self.exit_trade()
-                                        self.transcriber.record_exit(pe_option_ltp, "TARGET_HIT", timestamp)
-                                        self.cleanup_after_exit()
-                                        return 
                     finally:
                         self.exit_lock.release()
             except KeyError as e:
@@ -1093,7 +718,6 @@ class Bot:
     def aggregate_candles(self):
         df = pd.DataFrame(self.tick_buffer)
         if df.empty:
-            print("Waiting for market data...", end="\r")
             return
         df.set_index("timestamp", inplace=True)
         df = df.between_time("09:15", "15:30")
@@ -1103,301 +727,96 @@ class Bot:
             self.candle_df[interval] = self.data_processor.convert_to_candles(df, interval, historic, intraday)
             self.candle_df[interval] = Calculations.calculate_indicators(self.candle_df[interval])
 
-    def aggregate_ce_candles(self):
-        df = pd.DataFrame(self.ce_tick_buffer)
-        if df.empty:
-            return
-        df.set_index("timestamp", inplace=True)
-        df = df.between_time("09:15", "15:30")
-        for interval in Config.INTERVALS:
-            historic = self.ce_historic_df.get(interval)
-            intraday = self.ce_intraday_df.get(interval)
-            self.ce_candle_df[interval] = self.data_processor.convert_to_candles(df, interval, historic, intraday)
-            self.ce_candle_df[interval] = Calculations.calculate_indicators(self.ce_candle_df[interval])
-            if self.entry_lock.acquire(blocking=False):
-                try:
-                    Strategies.vwap_rsi_strategy(self, "CE", self.ce_candle_df)
-                finally:
-                    self.entry_lock.release()
-
-    def aggregate_pe_candles(self):
-        df = pd.DataFrame(self.pe_tick_buffer)
-        if df.empty:
-            return
-        df.set_index("timestamp", inplace=True)
-        df = df.between_time("09:15", "15:30")
-        for interval in Config.INTERVALS:
-            historic = self.pe_historic_df.get(interval)
-            intraday = self.pe_intraday_df.get(interval)
-            self.pe_candle_df[interval] = self.data_processor.convert_to_candles(df, interval, historic, intraday)
-            self.pe_candle_df[interval] = Calculations.calculate_indicators(self.pe_candle_df[interval])
-            if self.entry_lock.acquire(blocking=False):
-                try:
-                    Strategies.vwap_rsi_strategy(self, "PE", self.pe_candle_df)
-                finally:
-                    self.entry_lock.release()
-
-    def subscribe_to_options(self):
-        self.ce_strike_price, self.pe_strike_price = self.data_processor.get_strike_price(self.index_price)
-
-        # Subscribe to CE option data
-        self.ce_instrument_key = self.data_processor.get_option_key("CE")
-        if self.ce_instrument_key is None:
-            logging.error("CE Instrument Key not found.")
-            return
-        ce_historic_dfs=self.data_collector.get_historic_data(self.ce_instrument_key)
-        if ce_historic_dfs is None:
-            logging.critical("CE Historical Data unavailable.")
-            Alerts.error()
-            return
+        if self.entry_lock.acquire(blocking=False):
+            try:
+                Strategies.vwap_rsi_strategy(self,self.candle_df)
+            finally:
+                self.entry_lock.release()
         else:
-            logging.info("Fetched CE Historic Data")
-            self.ce_historic_df=dict(zip(Config.INTERVALS, ce_historic_dfs))
-        ce_intraday_dfs=self.data_collector.get_intraday_data(self.ce_instrument_key)
-        if ce_intraday_dfs is None:
-            logging.critical("CE Intraday Data unavailable.")
-            Alerts.error()
-            return
-        else:
-            logging.info("Fetched CE Intraday Data")
-            self.ce_intraday_df=dict(zip(Config.INTERVALS,ce_intraday_dfs))
-        
-        # Subscribe to PE option data
-        self.pe_instrument_key = self.data_processor.get_option_key("PE")
-        if self.pe_instrument_key is None:
-            logging.error("PE Instrument Key not found.")
-            return
-        pe_historic_dfs=self.data_collector.get_historic_data(self.pe_instrument_key)
-        if pe_historic_dfs is None:
-            logging.critical("PE Historical Data unavailable.")
-            Alerts.error()
-            return
-        else:
-            logging.info("Fetched PE Historic Data")
-            self.pe_historic_df=dict(zip(Config.INTERVALS, pe_historic_dfs))
-        pe_intraday_dfs=self.data_collector.get_intraday_data(self.pe_instrument_key)
-        if pe_intraday_dfs is None:
-            logging.critical("PE Intraday Data unavailable. Cannot enter trade safely")
-            Alerts.error()
-            return
-        else:
-            logging.info("Fetched PE Intraday Data")
-            self.pe_intraday_df=dict(zip(Config.INTERVALS,pe_intraday_dfs))
-
-        # Subscribe to option instrument data
-        instrument_keys_to_subscribe = [self.main_instrument_key, self.ce_instrument_key, self.pe_instrument_key]
-        if self.streamer:
-            self.streamer.subscribe(instrument_keys_to_subscribe, mode="full")
-            logging.info(f"Subscribed to instruments: {instrument_keys_to_subscribe}")
-            self.options_subscribed = True
-
-    def update_options(self,ce_strike_price,pe_strike_price):
-        logging.info("Updating To New Strike Prices")
-        ce_instrument_key=self.data_processor.get_option_key("CE")
-        if ce_instrument_key is None:
-            logging.error("CE Instrument Key not found.")
-            return
-        ce_historic_dfs=self.data_collector.get_historic_data(ce_instrument_key)
-        if ce_historic_dfs is None:
-            logging.critical("CE Historical Data unavailable.")
-            Alerts.error()
-            return
-        else:
-            logging.info("Fetched CE Historic Data")
-            self.ce_historic_df=dict(zip(Config.INTERVALS, ce_historic_dfs))
-        ce_intraday_dfs=self.data_collector.get_intraday_data(ce_instrument_key)
-        if ce_intraday_dfs is None:
-            logging.critical("CE Intraday Data unavailable.")
-            Alerts.error()
-            return
-        else:
-            logging.info("Fetched CE Intraday Data")
-            self.ce_intraday_df=dict(zip(Config.INTERVALS,ce_intraday_dfs))
-        self.ce_candle_df={}
-        
-        pe_instrument_key=self.data_processor.get_option_key("PE")
-        if pe_instrument_key is None:
-            logging.error("PE Instrument Key not found.")
-            return
-        pe_historic_dfs=self.data_collector.get_historic_data(pe_instrument_key)
-        if pe_historic_dfs is None:
-            logging.critical("PE Historical Data unavailable.")
-            Alerts.error()
-            return
-        else:
-            logging.info("Fetched PE Historic Data")
-            self.pe_historic_df=dict(zip(Config.INTERVALS, pe_historic_dfs))
-        pe_intraday_dfs=self.data_collector.get_intraday_data(pe_instrument_key)
-        if pe_intraday_dfs is None:
-            logging.critical("PE Intraday Data unavailable. Cannot enter trade safely")
-            Alerts.error()
-            return
-        else:
-            logging.info("Fetched PE Intraday Data")
-            self.pe_intraday_df=dict(zip(Config.INTERVALS,pe_intraday_dfs))
-        self.pe_candle_df={}
-
-        instruments_to_subscribe=[self.main_instrument_key,ce_instrument_key,pe_instrument_key]
-        instruments_to_unsubscribe=[self.ce_instrument_key,self.pe_instrument_key]
-
-        if self.streamer:
-            # Unsubscribe from current options and subscribe to new options
-            self.streamer.unsubscribe(instruments_to_unsubscribe)
-            logging.info(f"Unsubscribed From PE {self.pe_strike_price} and CE {self.ce_strike_price}")
-            self.options_subscribed=False
-            self.streamer.subscribe(instruments_to_subscribe,mode="full")
-            logging.info(f"Subscribed To PE {self.pe_strike_price} and CE {ce_strike_price}")
-            self.options_subscribed=True
-
-            # Save new options to Bot instance
-            self.ce_instrument_key=ce_instrument_key
-            self.pe_instrument_key=pe_instrument_key
-            self.ce_strike_price=ce_strike_price
-            self.pe_strike_price=pe_strike_price
+            logging.info("Entry lock busy, Skipping signal check")
 
     def enter_trade(self,option_type):
         if self.position_active:
             logging.info("Trade Active,Skipping Entries")
-            return 
-        if option_type == "CE":
-            option_price = self.ce_option_price
-            self.entry_price = option_price
-            self.option_key=self.ce_instrument_key
-            self.option_type = "CE"
-            if option_price is None:
-                logging.warning(f"Could not get option price for {option_type}")
-                return
-            current_atr = None
-            if not self.ce_candle_df[Config.SL_ATR_TIMEFRAME].empty and 'atr' in self.ce_candle_df[Config.SL_ATR_TIMEFRAME].columns:
-                current_atr = self.ce_candle_df[Config.SL_ATR_TIMEFRAME]['atr'].iloc[-1]
-            if current_atr is None or pd.isna(current_atr):
-                logging.warning("ATR Unavailable Skipping Entry")
-                return
-        elif option_type == "PE":
-            option_price = self.pe_option_price 
-            self.entry_price=option_price
-            self.option_key=self.pe_instrument_key
-            self.option_type = "PE"
-            if option_price is None:
-                logging.warning(f"Could not get option price for {option_type}")
-                return
-            current_atr = None
-            if not self.pe_candle_df[Config.SL_ATR_TIMEFRAME].empty and 'atr' in self.pe_candle_df[Config.SL_ATR_TIMEFRAME].columns:
-                current_atr = self.pe_candle_df[Config.SL_ATR_TIMEFRAME]['atr'].iloc[-1]
-            if current_atr is None or pd.isna(current_atr):
-                logging.warning("ATR Unavailable Skipping Entry")
-                return
-        trigger_price = Calculations.calculate_trigger_price(option_price)
-        if trigger_price is None:
+            return
+        self.option_type = option_type 
+        self.option_key = self.data_processor.get_option_key(option_type,self.index_price)
+        if self.option_key is None:
+            logging.warning(f"Could not find option key for {option_type}")
+            return
+        self.option_price=self.data_collector.get_option_price(self.option_key)
+        if self.option_price is None:
+            logging.warning(f"Could not get option price for {option_type}")
+            return
+        self.entry_price=self.option_price
+        self.trigger_price=Calculations.calculate_trigger_price(self.option_price)
+        if self.trigger_price is None:
             logging.error("Trigger Price Calculation Failed")
             return
-        self.trigger_price = math.floor(trigger_price)
         quantity = Calculations.calculate_quantity(self.lot_size)
-        if quantity is None:
-            logging.error("Quantity Calculation Failed")
+        if quantity <= 0:
+            logging.warning("Lot Size Must Be Greater Than Zero")
             return
-        initial_trailing_trigger = Calculations.calculate_sl_trigger(option_price,self.trigger_price,current_atr)
-        if initial_trailing_trigger is None:
-            logging.error("Initial SL Trigger Calculation Failed")
-            return
-        exit_price = Calculations.calculate_exit_price(option_price)
-        if exit_price is None:
-            logging.error("Exit Price Calculation Failed")
-            return
-        self.exit_price = exit_price
-        # if self.available_margin < (option_price * quantity):
-        #     logging.error("Insufficient Margin to Enter Trade")
-        #     return
-        self.position_active=True
+        self.exit_price=Calculations.calculate_exit_price(self.option_price)
         self.latest_entry_time = datetime.now(pytz.timezone('Asia/Kolkata'))
-        trade=Trade(self.option_key,self.option_type,self.latest_entry_time,option_price,quantity,self.trigger_price,self.exit_price,trailing_trigger=initial_trailing_trigger)
-        self.transcriber.record_entry(trade)
-        self.total_trades+=1
-        if Config.DRY_RUN:
-            logging.info(f"[DRY RUN]Entered {option_type} Trade | Option Price:{option_price} | Trigger Price:{self.trigger_price} | Exit Price:{self.exit_price} | Quantity:{quantity} | Trailing Trigger:{initial_trailing_trigger}")
-        else:
-            logging.info(f"Order Sent {option_type} Trade | Option Price:{option_price} | Trigger Price:{self.trigger_price} | Exit Price:{self.exit_price} | Quantity:{quantity} | Trailing Trigger:{initial_trailing_trigger}")
-            self.order_ids = self.place_order(quantity)
-            if self.order_ids is None:
-                logging.error("Order ID Unavailable, Trade Placement Failed")
-                self.position_active=self.data_collector.check_position()
-                if self.position_active:
-                    self.exit_trade()
-                    self.position_active = False
-                return
+        logging.info(f"{option_type} Trade: Price={self.option_price}, Qty={quantity}, "
+              f"Trigger={self.trigger_price}, Target={self.exit_price}")
+        instrument_keys_to_subscribe = [self.main_instrument_key,self.futures_key, self.option_key]
+        self.streamer.subscribe(instrument_keys_to_subscribe,"full")
+        logging.info(f"Subscribing to {self.option_key}")
+        self.place_order(quantity)
         Alerts.trade_entered()
 
     def place_order(self, quantity):
-        """Place order via Upstox API"""
         api_instance = upstox_client.OrderApiV3(upstox_client.ApiClient(Config.CONFIGURATION))
-        buy_body = upstox_client.PlaceOrderV3Request(
-            quantity=quantity,
-            product="I",
-            validity="DAY",
-            price=0,
-            tag="order",
-            instrument_token=self.option_key,
-            order_type="MARKET",
-            transaction_type="BUY",
-            disclosed_quantity=0,
-            trigger_price=0.0,
-            is_amo=False,
-            slice=True
-        )
-        sl_price=self.trigger_price-1
-        sl_body = upstox_client.PlaceOrderV3Request(
-            quantity=quantity,
-            product="I",
-            validity="DAY",
-            price=sl_price,
-            tag="stoploss_order",
-            instrument_token=self.option_key,
-            order_type="SL",
-            transaction_type="SELL",
-            disclosed_quantity=0,
-            trigger_price=self.trigger_price,
-            is_amo=False,
-            slice=True
-        )
-        try:
-            # Place buy order first
-            buy_response = api_instance.place_order(buy_body)
-            buy_placement_status = buy_response.status
-            if buy_placement_status != "success":
-                logging.error(f"Buy Order Failed: {buy_placement_status}")
-                return None
-            # Place stop loss order next
-            sl_response = api_instance.place_order(sl_body)
-            sl_placement_status = sl_response.status
-            if sl_placement_status != "success":
-                logging.error(f"Stop Loss Order Failed: {sl_placement_status}")
-                return None
-            buy_order_ids = buy_response.data.order_ids
-            sl_order_ids = sl_response.data.order_ids
-            logging.info(f"Buy order placed successfully. Order IDs: {buy_order_ids}")
-            logging.info(f"Stop Loss order placed successfully. Order IDs: {sl_order_ids}")
-            return sl_order_ids # Stored For Trailing Stoploss
-        except ApiException as e:
-            Alerts.error()
-            logging.error(f"Exception While Placing Order :{e}")
-            return None
 
-    # Cancel any untriggered SL orders    
-    def cancel_pending_orders(self):
-        api_instance = upstox_client.OrderApiV3(upstox_client.ApiClient(Config.CONFIGURATION))
-        for order_id in self.order_ids:
-            try:
-                api_response = api_instance.cancel_order(order_id)
-                if api_response.status == "success":
-                    logging.info("Pending Orders Removed")
-            except ApiException as e:
-                logging.error("Exception when calling OrderApiV3->cancel_order: %s\n" % e)
-                return
-        
+        try:
+            entry_rule = upstox_client.GttRule(
+                strategy="ENTRY",
+                trigger_type="IMMEDIATE",
+                trigger_price=self.entry_price
+            )
+
+            target_rule = upstox_client.GttRule(
+                strategy="TARGET",
+                trigger_type="IMMEDIATE",
+                trigger_price=self.exit_price
+            )
+            stoploss_rule = upstox_client.GttRule(
+                strategy="STOPLOSS",
+                trigger_type="IMMEDIATE",
+                trigger_price=self.trigger_price,
+                trailing_gap=Config.TRAILING_GAP
+            )
+
+            gtt_body = upstox_client.GttPlaceOrderRequest(
+                type="MULTIPLE",
+                quantity=quantity,
+                product="I",
+                rules=[entry_rule, target_rule, stoploss_rule],
+                instrument_token=self.option_key,
+                transaction_type="BUY"
+            )
+
+            gtt_response = api_instance.place_gtt_order(body=gtt_body)
+            order_ids=gtt_response.data.gtt_order_ids
+            time.sleep(3)
+
+            if self.data_collector.check_position():
+                logging.info("Order + GTT exits placed successfully")
+                self.total_trades += 1
+                self.position_active = True
+            else:
+                logging.error("Order Placement Failed")
+                self.cancel_gtt_orders(order_ids)
+
+        except ApiException as e:
+            logging.error("Exception when calling OrderApi: %s\n" % e)
+
     def exit_trade(self):
         if not self.position_active:
             logging.info("No Active Position to Exit")
-            return 
+            return
         api_instance = upstox_client.OrderApi(upstox_client.ApiClient(Config.CONFIGURATION))
         try:
             api_response = api_instance.exit_positions()
@@ -1412,47 +831,26 @@ class Bot:
             Alerts.error()
             logging.error(f"Exception When Exiting Position :{e}")
 
-    def update_stop_loss(self,new_trigger_price):
-        if not self.order_ids:
-            logging.error("No order IDs available to update stop loss")
-            return self.order_ids
-        new_sl_price= new_trigger_price-1
+    def cancel_gtt_orders(self, order_ids):
         api_instance = upstox_client.OrderApiV3(upstox_client.ApiClient(Config.CONFIGURATION))
-        order_ids=[]
-        for order_id in self.order_ids:
-            body = upstox_client.ModifyOrderRequest(
-                validity="DAY",
-                price=new_sl_price,
-                order_id=order_id,
-                order_type="SL",
-                trigger_price=new_trigger_price
-            )
+        for order_id in order_ids:
+            body = upstox_client.GttCancelOrderRequest(gtt_order_id=order_id)
             try:
-                api_response = api_instance.modify_order(body)
-                modification_status = api_response.status
-                if modification_status != "success":
-                    logging.error(f"Modification status: {modification_status}")
-                    logging.error(f"Stop loss trailing failed for Order ID {order_id}. Response: {api_response}")
-                    return self.order_ids
-                new_order_id = api_response.data.order_id
-                order_ids.append(new_order_id)
+                api_response = api_instance.cancel_gtt_order(body=body)
+                logging.info(f"GTT order canceled: {order_id}")
             except ApiException as e:
-                Alerts.error()
-                logging.error(f"Exception While Updating Stop Loss :{e}")
-                return self.order_ids
-        return order_ids
+                logging.error(f"Exception when canceling GTT order {order_id}: %s\n" % e)
 
     def cleanup_after_exit(self):
+        self.streamer.unsubscribe([self.option_key])
+        self.streamer.subscribe([self.main_instrument_key,self.futures_key], "full")
         self.position_active=False
         self.option_type=None
         self.option_key=None
-        self.index_price=None
         self.option_price=None
         self.trigger_price=None
         self.exit_price=None
-        self.order_ids=[]
-        if not Config.DRY_RUN:
-            self.available_margin=self.data_collector.get_margin()
+        self.available_margin=self.data_collector.get_margin()
         self.last_exit_time = datetime.now(pytz.timezone('Asia/Kolkata'))
         if hasattr(self, 'latest_entry_time'):
             del self.latest_entry_time
